@@ -1,0 +1,28 @@
+# --- App/UI ---
+streamlit==1.37.1
+python-dotenv==1.0.1
+
+# --- OpenAI / Azure OpenAI ---
+openai==1.52.2
+
+# --- Firebase (Firestore) ---
+firebase-admin==6.5.0
+google-cloud-firestore==2.16.0
+
+# --- Data / ML basics ---
+numpy==1.26.4
+pandas==2.2.2
+scikit-learn==1.5.2
+
+# --- NLP stack ---
+sentence-transformers==2.7.0
+transformers==4.44.2
+huggingface-hub==0.24.6
+tokenizers==0.19.1
+torch==2.3.1
+
+# Optional ANN index (Render/Linux OK; will be skipped on Windows)
+hnswlib==0.8.0 ; platform_system!="Windows"
+
+# --- Utility ---
+filelock==3.15.4
