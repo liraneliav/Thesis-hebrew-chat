@@ -7,19 +7,8 @@ from firebase_admin import credentials, firestore
 
 def _get_db():
     if not firebase_admin._apps:
-        raw = os.environ.get("FIREBASE_SERVICE_ACCOUNT")
-        if not raw:
-            raise RuntimeError("FIREBASE_SERVICE_ACCOUNT env var is missing")
-        try:
-            payload = json.loads(raw)
-        except Exception:
-            # allow passing a file path for local testing
-            if os.path.exists(raw):
-                with open(raw, "r", encoding="utf-8") as f:
-                    payload = json.load(f)
-            else:
-                raise
-        cred = credentials.Certificate(payload)
+        path = os.environ.get("FIREBASE_CREDENTIALS_PATH")
+        cred = credentials.Certificate(path)
         firebase_admin.initialize_app(cred)
     return firestore.client()
 
@@ -191,4 +180,5 @@ def save_into_firebase(ss: dict, *, collection: str = "hebrew_participants"):
 
     for s in slots:
         for t in topics:
+
             save_chat_transcript(ss, session_id=ss["session_id"], collection=collection, chat_slot=s, topic=t, split_by_slot=True)
