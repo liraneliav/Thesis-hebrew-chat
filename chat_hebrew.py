@@ -8,7 +8,7 @@ from dotenv import load_dotenv
 import streamlit as st
 from openai import AzureOpenAI, OpenAI
 from typing import List, Optional
-from toxicity import measuring_toxicity, plot_toxicity
+from toxicity import measuring_toxicity
 #from opposite import most_opposite_in_topic, load, load_hebrew, most_opposite_in_topic_hebrew
 #from opposite_hebrew_nli import load_hebrew, most_opposite_in_topic_hebrew_with_nli, other_comments_same_author_same_topic 
 from opposite_hebrew_cos_nli_gpt import run_opposite_pipeline_and_render, load_hebrew
@@ -977,14 +977,6 @@ def render_chat(title, messages_key, base_prompt_key, next_button_label, next_st
         if st.button(next_button_label, use_container_width=True):
             st.session_state.stage = next_stage
             st.rerun()
-        if st.session_state[turns_key]:
-            fig, _ = plot_toxicity(
-                st.session_state[turns_key],
-                st.session_state[user_scores_key],
-                st.session_state[assistant_scores_key],
-                configuration=f"[{title}]"
-            )
-            fig.savefig(f"{title}.png")
             # st.pyplot(fig)
             u = st.session_state[user_scores_key]
             a = st.session_state[assistant_scores_key]
@@ -1601,4 +1593,5 @@ elif (st.session_state.chat_number_start == 2) and (stage == "full_survey"):
 
 elif (st.session_state.chat_number_start == 2) and (stage == "thanks"):
         # require full survey completion
+
         render_thanks()
