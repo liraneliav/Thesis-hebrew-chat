@@ -11,7 +11,7 @@ google-cloud-firestore==2.16.0
 
 # --- Data / ML basics ---
 numpy==1.26.4
-pandas==2.2.2
+pandas==2.2.3
 scikit-learn==1.5.2
 
 # --- NLP stack ---
@@ -25,4 +25,5 @@ torch==2.3.1
 hnswlib==0.8.0 ; platform_system!="Windows"
 
 # --- Utility ---
+
 filelock==3.15.4
