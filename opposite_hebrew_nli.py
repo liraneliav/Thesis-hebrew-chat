@@ -396,38 +396,6 @@ def load_hebrew(
     return meta, embs, index, encoder
 
 
-# def load_hebrew(art_dir: Path | str = "./hebrew"):
-#     """
-#     Loads Hebrew artifacts: config.json, meta.parquet, embeddings.npy, optional hnsw_cosine.bin
-#     meta must include a 'message' column (the comment text).
-#     """
-#     ART_DIR = Path(art_dir)
-#     CFG_PATH = ART_DIR / "config.json"
-#     META_PATH = ART_DIR / "meta.parquet"
-#     EMB_PATH  = ART_DIR / "embeddings.npy"
-#     HNSW_PATH = ART_DIR / "hnsw_cosine.bin"  # optional
-
-#     if not CFG_PATH.exists() or not META_PATH.exists() or not EMB_PATH.exists():
-#         raise FileNotFoundError(
-#             f"Missing artifacts in {ART_DIR}. Need: config.json, meta.parquet, embeddings.npy (and optionally hnsw_cosine.bin)."
-#         )
-
-#     cfg  = json.load(open(CFG_PATH, "r", encoding="utf-8"))
-#     meta = pd.read_parquet(META_PATH)
-#     embs = np.load(EMB_PATH, mmap_mode="r")  # float32, L2-normalized
-
-#     device = "cuda" if torch.cuda.is_available() else "cpu"
-#     encoder = SentenceTransformer(cfg["model"], device=device)
-
-#     index: Optional["hnswlib.Index"] = None
-#     if (hnswlib is not None) and HNSW_PATH.exists():
-#         index = hnswlib.Index(space="cosine", dim=int(cfg["dim"]))
-#         index.load_index(str(HNSW_PATH), max_elements=int(cfg["n"]))
-#         index.set_ef(int(cfg.get("efQuery", 200)))
-
-#     return meta, embs, index, encoder
-
-
 def other_comments_same_author_same_topic(
     meta: pd.DataFrame,
     topic_query: str | Iterable[str],
