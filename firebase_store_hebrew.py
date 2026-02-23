@@ -7,7 +7,7 @@ from firebase_admin import credentials, firestore
 
 def _get_db():
     if not firebase_admin._apps:
-        path = os.environ.get("FIREBASE_CREDENTIALS_PATH")
+        path = os.environ.get("FIREBASE_SERVICE_ACCOUNT")
         cred = credentials.Certificate(path)
         firebase_admin.initialize_app(cred)
     return firestore.client()
@@ -85,40 +85,6 @@ def _bundle_chat_summary(ss, prefix: str, topic: str) -> Dict[str, Any]:
         "assistant_toxicity": atox,
     }
 
-# def _bundle_chat_full(ss, prefix: str, topic: str) -> Dict[str, Any]:
-#     """Collect chat metrics + arrays for a given chat prefix (chat1/chat2)."""
-#     msgs  = ss.get(f"{prefix}", []) or []
-#     return {
-#         "messages": msgs,
-#     }
-
-# def save_chat_transcript(
-#     ss: dict,
-#     *,
-#     session_id: Optional[str] = None,
-#     collection: str = "participants",
-#     chat_slot: str,
-#     topic: str,
-# ) -> None:
-#     db = _get_db()
-#     if not session_id:
-#         session_id = _ensure_session(ss)
-
-#     transcript = ss.get(f"{chat_slot}_messages_{topic}", []) or []
-#     utox = ss.get(f"{chat_slot}_user_toxicity_{topic}", []) or []
-#     atox = ss.get(f"{chat_slot}_assistant_toxicity_{topic}", []) or []
-
-#     db.collection(collection).document(session_id).collection("chats").document(
-#         f"{chat_slot}_{topic}"
-#     ).set({
-#         "chat_slot": chat_slot,
-#         "topic": topic,
-#         "messages": transcript,
-#         "user_toxicity": [float(x) for x in utox],
-#         "assistant_toxicity": [float(x) for x in atox],
-#         "saved_at": firestore.SERVER_TIMESTAMP,
-#     }, merge=True)
-
 def save_chat_transcript(
     ss: dict,
     *,
@@ -180,5 +146,4 @@ def save_into_firebase(ss: dict, *, collection: str = "hebrew_participants"):
 
     for s in slots:
         for t in topics:
-
             save_chat_transcript(ss, session_id=ss["session_id"], collection=collection, chat_slot=s, topic=t, split_by_slot=True)
