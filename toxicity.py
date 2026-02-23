@@ -2,8 +2,6 @@ import numpy as np
 from transformers import pipeline
 from typing import Sequence, Tuple
 
-# Create the pipeline ONCE (module-level) so it's not reloaded each call.
-# device: -1 = CPU, 0 = first GPU (if you KNOW you have CUDA). CPU is safest default.
 _TOXICITY_PIPE = pipeline(
     task="text-classification",
     model="textdetox/glot500-toxicity-classifier",
