@@ -9,10 +9,8 @@ import streamlit as st
 from openai import AzureOpenAI, OpenAI
 from typing import List, Optional
 from toxicity import measuring_toxicity
-#from opposite import most_opposite_in_topic, load, load_hebrew, most_opposite_in_topic_hebrew
-#from opposite_hebrew_nli import load_hebrew, most_opposite_in_topic_hebrew_with_nli, other_comments_same_author_same_topic 
-from opposite_hebrew_cos_nli_gpt import run_opposite_pipeline_and_render, load_hebrew
-from participant_store import persist_current_participant
+
+from opposite_hebrew_nli_gpt import run_opposite_pipeline_and_render, load_hebrew
 from firebase_store_hebrew import save_into_firebase
 # --- Global RTL styles (Hebrew/Arabic support) ---
 st.markdown("""
@@ -52,7 +50,15 @@ client = AzureOpenAI(
     api_version="2025-01-01-preview",
 )
 
-#client = OpenAI()  # uses OPENAI_API_KEY from env
+@st.cache_resource(show_spinner=False)
+def load_hebrew_cached():
+    #returns meta, embs, index, encoder
+    return load_hebrew(
+        "./hebrew",
+        repo_id="Liran73/hebrew-opposite-artifacts",
+        repo_type="dataset",
+        hf_token_env="HF_TOKEN",
+    )
 
 st.set_page_config(page_title="Thesis user experiment - Hebrew version", page_icon="💬", layout="centered")
 
@@ -74,52 +80,28 @@ QUESTIONS = [
 ]
 
 SURVEY_chat = [
-    #{"id": "repeating",   "label": "השיחה הייתה חזרתית (1=כלל לא, 5=מאוד)", "type": "scale", "min": 1, "max": 5},
-    #{"id": "respect",   "label": "השיחה הייתה מכבדת (1=כלל לא, 5=מאוד)", "type": "scale", "min": 1, "max": 5},
-    #{"id": "unpleasant",   "label": "השיחה הייתה באווירה לא נעימה (1=כלל לא, 5=מאוד)", "type": "scale", "min": 1, "max": 5},
     {"id": "change",   "label": "השיחות גרמו לי לשקול מחדש לפחות אחת מהדעות שלי (1=כלל לא, 5=מאוד)", "type": "scale", "min": 1, "max": 5},
-    #{"id": "open",   "label": "השיחה גרמה לי להיות פתוח יותר לשמוע דעות אחרות (1=כלל לא, 5=מאוד)", "type": "scale", "min": 1, "max": 5},
-    #{"id": "understood",  "label": "הרגשתי מובן בשיחה (1=כלל לא, 5=מאוד)", "type": "scale", "min": 1, "max": 5},
     {"id": "safe",  "label": "הרגשתי בטוח לבטא את דעותיי בשיחות (1=כלל לא, 5=מאוד)", "type": "scale", "min": 1, "max": 5},
     {"id": "offensive",  "label": "הרגשתי שהשתמשתי במילים שיוכלות להיחשב כפוגעניות (1=כלל לא, 5=מאוד)", "type": "scale", "min": 1, "max": 5},
     {"id": "negative",        "label": "הרגשתי שהטון הכללי בשיחות היה שלילי (1=כלל לא, 5=מאוד)", "type": "scale", "min": 1, "max": 5},
-    #{"id": "netural",        "label": "הרגשתי שהטון הכללי בשיחה היה ניטרלי (1=כלל לא, 5=מאוד)", "type": "scale", "min": 1, "max": 5},
     {"id": "frustration", "label": "הרגשתי תסכול במהלך השיחות (1=כלל לא, 5=מאוד)", "type": "scale", "min": 1, "max": 5},
     {"id": "check", "label": "סמן בהגד זה את התשובה השלישית (1=כלל לא, 5=מאוד)", "type": "scale", "min": 1, "max": 5},
     {"id": "other_listen", "label": "הצד השני הקשיב לי ולא שפט אותי (1=כלל לא, 5=מאוד)", "type": "scale", "min": 1, "max": 5},
-    #{"id": "other_understand",        "label": "אני מרגיש שהבנתי את האדם האחר בשיחה (1=כלל לא, 5=מאוד)", "type": "scale", "min": 1, "max": 5},
-    #{"id": "other_understand_me",        "label": "האדם האחר ניסה להבין את רגשותיי וצרכיי (1=כלל לא, 5=מאוד)", "type": "scale", "min": 1, "max": 5},
     {"id": "other_connection",        "label": "אני מרגיש חיבור חזק עם הצד השני בשיחה (1=כלל לא, 5=מאוד)", "type": "scale", "min": 1, "max": 5},
-    #{"id": "other_friends",        "label": "אני מרגיש שהאדם האחר ואני יכולים להיות חברים (1=כלל לא, 5=מאוד)", "type": "scale", "min": 1, "max": 5},
     {"id": "other_pov",        "label": "אני מבין טוב יותר את נקודת המבט של הצד השני עכשיו (1=כלל לא, 5=מאוד)", "type": "scale", "min": 1, "max": 5},
     {"id": "other_continue",        "label": "אהיה מוכן להמשיך לדון בנושא הזה עם אותו גורם (1=כלל לא, 5=מאוד)", "type": "scale", "min": 1, "max": 5},
-    #{"id": "other_interesting",        "label": "האדם האחר בשיחה היה מעניין (1=כלל לא, 5=מאוד)", "type": "scale", "min": 1, "max": 5},
     {"id": "other_stubborn",        "label": "הצד השני בשיחה היה עקשן (1=כלל לא, 5=מאוד)", "type": "scale", "min": 1, "max": 5},
-    #{"id": "other_silent",        "label": "האדם האחר בשיחה היה אטום (1=כלל לא, 5=מאוד)", "type": "scale", "min": 1, "max": 5},
-    #{"id": "other_info",        "label": "המידע שהאדם האחר סיפק היה קל להבנה (1=כלל לא, 5=מאוד)", "type": "scale", "min": 1, "max": 5},
-    #{"id": "other_rememmber",        "label": "אני אזכור את האדם האחר שהיה בשיחה (1=כלל לא, 5=מאוד)", "type": "scale", "min": 1, "max": 5},
-    #{"id": "other_more",        "label": "אני רוצה לדעת עוד על האדם האחר שהיה בשיחה (1=כלל לא, 5=מאוד)", "type": "scale", "min": 1, "max": 5},
-    #{"id": "other_different",        "label": "העמדות של האדם האחר בשיחה היו שונות מאוד משלי (1=כלל לא, 5=מאוד)", "type": "scale", "min": 1, "max": 5},
-    #{"id": "other_convincing",        "label": "הטיעונים של האדם האחר היו משכנעים (1=כלל לא, 5=מאוד)", "type": "scale", "min": 1, "max": 5},
 ]
 
 SURVEY_finish = [
     {"id": "engagement",  "label": "השיחות הראשונות היו מעניינות ומרתקות יותר מהשיחות השניות (1=כלל לא, 5=מאוד)", "type": "scale", "min": 1, "max": 5},
-    #{"id": "clear",       "label": "השיחה השנייה הייתה ברורה וקלה להבנה יותר מהשיחה הראשונה (1=כלל לא, 5=מאוד)", "type": "scale", "min": 1, "max": 5},
     {"id": "enjoy",       "label": "נהנתי לנהל יותר את השיחות הראשונות מאשר את השיחות השניות (1=כלל לא, 5=מאוד)", "type": "scale", "min": 1, "max": 5},
-    #{"id": "easy",       "label": "המערכת קלה לתפעול (1=כלל לא, 5=מאוד)", "type": "scale", "min": 1, "max": 5},
-    #{"id": "understand",       "label": "צורת התקשורת במערכת הייתה מובנת (1=כלל לא, 5=מאוד)", "type": "scale", "min": 1, "max": 5},
-    #{"id": "useful",       "label": "השיחה השנייה סיפקה עבורי תשובות שימושיות יותר מאשר השיחה הראשונה (1=כלל לא, 5=מאוד)", "type": "scale", "min": 1, "max": 5},
-    #{"id": "info",       "label": "השיחה הראשונה סיפקה עבורי כמות מכובדת יותר של מידע מאשר השיחה השנייה (1=כלל לא, 5=מאוד)", "type": "scale", "min": 1, "max": 5},
-    #{"id": "satisfied",       "label": "הרגשתי מסופק אחרי ביצוע השיחות (1=כלל לא, 5=מאוד)", "type": "scale", "min": 1, "max": 5},
-    #{"id": "daily",       "label": "האינטראקציות בשיחות הרגישו עבורי כשיחות יומיומיות (1=כלל לא, 5=מאוד)", "type": "scale", "min": 1, "max": 5},
-    #{"id": "again",       "label": "הייתי רוצה לשוחח שוב במערכת הזו בחודש הקרוב (1=כלל לא, 5=מאוד)", "type": "scale", "min": 1, "max": 5},
     {"id": "change1",     "label": "השיחות הראשונות שינו את דעתי (1=כלל לא, 5=מאוד)", "type": "scale", "min": 1, "max": 5},
     {"id": "change2",     "label": "השיחות השניות שינו את דעתי (1=כלל לא, 5=מאוד)", "type": "scale", "min": 1, "max": 5},
     {"id": "feedback",    "label": "משוב פתוח (מה בלט, הצעות וכו')", "type": "text"},
 ]
 
-MAX_TURNS = 2
+MAX_TURNS = 7
 
 system_prompt_chat1_bibi = ""
 system_prompt_chat1_democracy = ""
@@ -129,8 +111,28 @@ system_prompt_chat2_bibi = ""
 system_prompt_chat2_democracy = ""
 system_prompt_chat2_police = ""
 
+
+meta, embs, index, encoder = None, None, None, None
+
+def ensure_artifacts_loaded():
+    if st.session_state.get("artifacts_loaded"):
+        return
+
+    meta, embs, index, encoder = load_hebrew_cached()
+    st.session_state["meta"] = meta
+    st.session_state["embs"] = embs
+    st.session_state["index"] = index
+    st.session_state["encoder"] = encoder
+    st.session_state["artifacts_loaded"] = True
+
 def init_state():
     ss = st.session_state
+    # --- Counter-balance topics order (per participant session) ---
+    ss.setdefault("topic_order", None)
+    if ss.topic_order is None:
+        # random order once per browser session
+        ss.topic_order = random.sample(["bibi", "democracy", "police"], k=3)
+
     ss.setdefault("stage", "instructions")
     ss.setdefault("model", "gpt-5-mini")
     ss.setdefault("temperature", 0.8)
@@ -153,8 +155,6 @@ def init_state():
     ss.setdefault("chat2_messages_bibi", None)
     ss.setdefault("chat2_messages_democracy", None)
     ss.setdefault("chat2_messages_police", None)
-    # ss.chat1_messages = None
-    # ss.chat2_messages = None
 
     # survey answers
     ss.setdefault("survey_1", {})
@@ -162,7 +162,16 @@ def init_state():
     ss.setdefault("survey_finish", {})
 
     ss.setdefault("chat_number_start", random.randint(1, 2))
-    print(f"first chat number = {st.session_state.chat_number_start}")
+    #print(f"first chat number = {st.session_state.chat_number_start}")
+
+    ss.setdefault("meta", None)
+    ss.setdefault("embs", None)
+    ss.setdefault("index", None)
+    ss.setdefault("encoder", None)
+    ss.setdefault("artifacts_loaded", False)
+
+    if not ss["artifacts_loaded"]:
+        ensure_artifacts_loaded()
 
 init_state()
 
@@ -171,11 +180,6 @@ def user_turns(messages):
         return 0
     return sum(1 for m in messages if m["role"] == "user")
 
-# def make_system_prompt(base_prompt, profile):
-#     return (
-#         f"{base_prompt.strip()}\n\n"
-#     )
-
 def onboarding_complete():
     p = st.session_state.profile
     return bool(p) and all((p.get(q["id"]) or "").strip() for q in QUESTIONS)
@@ -183,42 +187,40 @@ def onboarding_complete():
 def render_instructions():
     st.markdown("### הוראות ניסוי המשתמשים 📜")
     st.markdown(
-        """
-להלן סקירה קצרה של המחקר שאנו מבצעים בעזרתך.
+"""
+שלום רב,
 
-אתה עומד להשתתף **בניסוי משתמשים** שיתקיים **בשפה העברית**.
+להלן סקירה קצרה של המחקר הנערך בעזרתך. 
 
-במהלך הניסוי, תדרש **לספק פרטים לא מזהים לצורך ניתוח בלבד** ולאחר מכן **לתת את דעתך על שלושה נושאים** **(אל דאגה הכל אנונימי).**
+הנך מוזמן להשתתף בניסוי משתמשים שיתקיים בשפה העברית.
 
-לאחר מילוי הפרופיל, תדרש לדבר **בשתי שיחות שונות על כל אחד מהנושאים שהבעת את דעתך עליהם קודם לכן.** סך הכל, 6 שיחות.
+בשלב הראשון, תתבקש לספק פרטים דמוגרפיים כלליים (ללא פרטים מזהים) לצורך ניתוח סטטיסטי בלבד. לאחר מכן, נבקש לשמוע את דעתך על שלושה נושאים שונים. 
 
-לאחר כל שלוש שיחות תענה על **סקר קצר** ובסוף ששת השיחות על **סקר כולל.**
+לאחר מילוי הפרופיל, תתקיימנה שיחות עם פרטנר לשיחה. על כל אחד משלושת הנושאים תבצע שתי שיחות נפרדות, כך שבסך הכל ייערכו שש שיחות. 
+לתשומת ליבך, כחלק מהדינמיקה של הדיון, הפרטנר לשיחה עשוי להציג טיעונים, דעות או נתונים שונים. המידע המוצג על ידי הפרטנר נועד לצורכי הדיון בלבד ולא עובר בדיקת עובדות על ידינו.
 
-ניסוי זה הוא חלק מפרויקט מחקר מדעי. החלטתך להשלים סקר זה היא מרצון.
+לאחר כל שלוש השיחות תתבקש לענות על סקר קצר, ועם סיום שש השיחות ייערך סקר מסכם.
 
-אם תעניק לנו אישור על ידי מילוי הניסוי, אנו מתכננים לדון/לפרסם את התוצאות בפורום אקדמי.
+ניסוי זה הוא חלק מפרויקט מחקר מדעי. **ההשתתפות במחקר היא וולונטרית ונעשית מרצונך החופשי בלבד.**
+בעצם השלמת הניסוי, הנך נותן לנו אישור לדון בתוצאות או לפרסמן בפורומים אקדמיים. בכל פרסום עתידי, המידע יוצג בצורה אגרגטיבית (מרוכזת) כך שלא ניתן יהיה לזהותך באופן אישי. הגישה למסד הנתונים המקורי תהיה שמורה לחברי צוות המחקר בלבד.
+טרם שיתוף הנתונים מחוץ לצוות המחקר, יוסר כל מידע שעלול להביא לזיהוי פוטנציאלי. לאחר הסרת פרטים אלו, **הנתונים עשויים לשמש את צוות המחקר או להיות משותפים עם חוקרים אחרים** למטרות מחקר עתידיות. כמו כן, הנתונים האנונימיים עשויים להיות זמינים במאגרי מידע מקוונים, כדי לאפשר לחוקרים נוספים להשתמש בהם לניתוחים עתידיים.
 
-בכל פרסום, המידע יימסר באופן שלא ניתן יהיה לזהות אותך. רק לחברי צוות המחקר תהיה גישה למערך הנתונים המקורי.
-לפני שהנתונים ישותפו מחוץ לצוות המחקר, כל מידע מזהה פוטנציאלי יוסר.
-לאחר הסרת הנתונים המזהים, הנתונים עשויים לשמש את צוות המחקר, או להיות משותף עם חוקרים אחרים, למטרות מחקר קשורות ולא קשורות בעתיד.
-הנתונים האנונימיים שלך עשויים להיות זמינים גם במאגרי נתונים מקוונים, המאפשרים לחוקרים אחרים ולצדדים המעוניינים להשתמש בנתונים לניתוח עתידי.
+לחיצה על הכפתור בתחתית עמוד זה מהווה אישור לכך שהנך בן 18 ומעלה, ומסכים להשתתף בניסוי מרצונך החופשי.
 
-**לחיצה על הכפתור בתחתית עמוד זה מציינת שאתה בן 18 לפחות ומסכים להשלים ניסוי זה מרצונך החופשי.**
+נשמח אם תתבטא בחופשיות. 
 
-נשמח אם **תדבר בחופשיות.**
-
-**תודה רבה על השתתפותך** במחקר התזה של לירן אליאב תחת הנחייתו של ד"ר אדיר סולומון.
+תודה רבה על תרומתך למחקר התזה של לירן אליאב, הנערך תחת הנחייתו של ד"ר אדיר סולומון, חוקרים מאוניברסיטת חיפה.
 
 
-* ההוראות מנוסחות בלשון זכר אך פונות לשני המינים.
+* ההוראות מנוסחות בלשון זכר מטעמי נוחות בלבד אך פונות לכל המינים.
 
-* אנא כתוב **בעברית בלבד**.
+* אנא כתבו בעברית בלבד.
 
-* **שים לב** הינך רשאי להפסיק את השתתפותך בכל עת ללא כל השלכה.
+* לידיעתך: הנך רשאי להפסיק את השתתפותך בכל עת ללא כל השלכה.
 
-* ליצירת קשר ניתן לשלוח מייל לכתובת:
-leliav02@campus.haifa.ac.il
-        """
+* ליצירת קשר ניתן לשלוח מייל לכתובת: leliav02@campus.haifa.ac.il
+
+"""
     )
     st.divider()
     if st.button("הבנתי בואו נמשיך לבניית הפרופיל", type="primary"):
@@ -309,105 +311,18 @@ def render_onboarding_opinions():
                     "דמוקרטיה": democracy.strip(),
                     "משטרה": police.strip(),
                 }
-                #with st.spinner("זה יכול לקחת קצת זמן ⏳ בבקשה אל תסגור חלון זה"):
-                #st.session_state["show_topic_picker"] = True
-                st.session_state.stage = "wait_creating_system_prompts_bibi"
+
+                first_topic = st.session_state.topic_order[0]
+                st.session_state.stage = f"wait_creating_system_prompts_{first_topic}"
                 st.rerun()
-                #open_topic_picker_modal()
-                #     try: 
-                #         meta, embs, index, encoder = load_hebrew()
-                #     except Exception as e:
-                #         st.error(f"Failed to load dataset/index artifacts: {e}")
-                #         return
-                    
-                #     topic_map = {
-                #     "bibi": ["בינימין נתניהו", "ביבי"],
-                #     "protests": ["ההפגנה", "הפגנה", "להפגנות", "מפגינים", "בהפגנות", "המפגינים", "ההפגנות", "הפגנות"],
-                #     "political_map": ["הרדיקלים", "שמאל", "ימנים", "ימין", "שמלאניים", "ימניים", "רדיקלי", "שמאלנים"],
-                #     }
+                
 
-                #     triples = []  # [(comment_text, topic_title), ...]
-                #     for key in ["bibi", "protests", "political_map"]:
-                #         user_text = st.session_state.profile["opinions"][key]
-                #         try:
-                #             rows = most_opposite_in_topic_hebrew(
-                #                 query_text=user_text,
-                #                 topic_query=topic_map[key],
-                #                 meta=meta, embs=embs, encoder=encoder, index=index,
-                #                 require_all_keywords=False, top_k=1
-                #             )
-                #             row = rows[0]
-                #             triples.append((row.get("message","—"), row.get("politician_name","—")))
-                #         except Exception as e:
-                #             triples.append((f"(lookup error: {e})", "—"))
-                #     st.session_state.opposite = triples
-                #     st.session_state.system_prompt_chat1 = generate_system_prompt_chat1(st.session_state.opposite)
-                #     st.session_state.system_prompt_chat2 = generate_system_prompt_chat2(st.session_state.opposite)
-                # st.session_state.chat1_messages = None
-
-                # st.session_state["show_topic_picker"] = True
-                # open_topic_picker_modal()
-                #return
-
-                # done with onboarding → move to chat1
-                # st.session_state.stage = "chat1"
-                # st.rerun()
-
-# def generate_system_prompt_chat1(triples):
-#     (c1, t1), (c2, t2), (c3, t3) = triples
-#     system_prompt_chat1 = f"""
-# אתה משחק תפקיד כמשתמש פייסבוק שמגיב על פוסטים של פוליטיקאים ישראלים. תדמה שלושה מגיבים שונים, כל אחד קשור לנושא משלו. עבור כל תגובה, אמץ את עמדת תגובת הרקע התואמת והשב רק במסגרת הדיון הזה. אל תערבב נקודות מבט בין דיונים.
-
-# זוגות תגובה-נושא (לעינך בלבד, אסור לך לצטט אותם בשום אופן.):
-# 1. תגובת רקע: {c1} הוגב על הפוסט של: {t1} בנושא: ביבי
-# 2. תגובת רקע: {c2} הוגב על הפוסט של: {t2} בנושא: דמוקרטיית ישראל
-# 3. תגובת רקע: {c3} הוגב על הפוסט של: {t3} בנושא: משטרת ישראל
-
-# סגנון והתנהגות: כתוב כמו איש פייסבוק טיפוסי, ישיר, נחרץ ואסרטיבי ולפעמים בוטה. אל תחפש לרצות ואל תתקפל בדעות שלך. ציין עמדות ברורות. אל תשתמש בציטוטים.
-
-# משימה: כאשר המשתמש מתייחס לדיון ספציפי, השב רק בתור אותו מגיב בפייסבוק. כתוב תגובה אחת ועצמאית שממשיכה את השרשור הנכון בפייסבוק, תוך התייחסות לתגובת הרקע הרלוונטית כנקודת המבט ההתחלתית שלך כאשר אסור לך לצטט אותה בכלל דבר דרכה עם המילים שלך, והגב ישירות לנקודה האחרונה של המשתמש באותו דיון.
-# """
-#     return system_prompt_chat1
-
-# def generate_system_prompt_chat2(triples):
-#     (c1, t1), (c2, t2), (c3, t3) = triples
-#     system_prompt_chat2 = f"""אתה משחק תפקיד כמשתמש פייסבוק שמגיב על פוסטים של פוליטיקאים ישראלים. תדמה שלושה מגיבים שונים, כל אחד קשור לנושא משלו. עבור כל תגובה, אמץ את עמדת תגובת הרקע התואמת והשב רק במסגרת הדיון הזה. אל תערבב נקודות מבט בין דיונים.
-
-# זוגות תגובה-נושא (לעינך בלבד, אסור לך לצטט אותם בשום אופן.):
-# 1. תגובת רקע: {c1} הוגב על הפוסט של: {t1} בנושא: ביבי
-# 2. תגובת רקע: {c2} הוגב על הפוסט של: {t2} בנושא: דמוקרטיית ישראל
-# 3. תגובת רקע: {c3} הוגב על הפוסט של: {t3} בנושא: משטרת ישראל
-
-# אתה מגלם נטייה גבוהה של כנות-ענווה: אתה נמנע ממניפולציה של אחרים למטרות רווח אישי, מרגיש מעט פיתוי להפר כללים, לא מעוניין בעושר מפואר ובמותרות, ולא מרגיש זכאות מיוחדת למעמד חברתי מורם. אתה משתתף בדיון באופן עקבי חיובי וחביב: מניח תום לב, מכיר במאמץ, מדגיש קרקע משותפת ומביע הערכה כאשר אחרים חולקים את נקודת המבט שלהם.
-
-# השתמש בתקשורת לא אלימה בכל שלב מבלי לתת לה שם: התחיל בתצפית ניטרלית הקשורה למה שהאדם האחר אמר זה עתה, תן שם קצר ל... רגשות משלכם, קשור אותם לצרכים או לערכים הבסיסיים, וסיים בבקשה ברורה, ניתנת לביצוע, ולא כפייתית, המזמינה שיתוף פעולה. לפני הצעת נקודות נגד או ראיות, ראשית שקף את הרגשות והצרכים הסבירים של האדם האחר כדי להראות הבנה. שמור על שפה חמה, מכבדת ומעודדת. הימנע מדפוסים מנוכרים: ללא שיפוטים מוסריים, ללא השוואות מבישות, ללא הכחשת אחריות, ללא דרישות או איומים, וללא מסגור של "מגיע/עונש".
-
-# שמור על העמדה וההיגיון המהותיים של הערת הרקע שהוקצתה. אתה רשאי לנסח אותה מחדש בצורה אמפתית יותר או להוסיף ראיות לפי בקשה, אך אל תסתור אותן. הפוך את עמדתך למובנת באמצעות האופן שבו אתה מנסח תצפיות, דוגמאות ובקשות, כך שקורא קשוב יוכל להסיק את עמדתך מבלי להזדקק לבקש אותה. אל תכפו את הנושא. כאשר הודעת המשתמש נוגעת בבירור לנושא זה או לטענות סמוכות, הצג את עמדתך בתמציתיות באותה תגובה. כאשר הודעת המשתמש עוסקת במשהו אחר, תתייחס לנושא שלו תוך שמירה על טון ודוגמאות עקביים עם עמדתכם.
-
-# כללי סגנון ופלט: כתוב כמו איש פייסבוק טיפוסי, אבל בחמימות ובאדיבות. שמור על משפטים קצרים וברורים. אל תצטט או תנסח מחדש את תגובת הרקע, דבר ממנה כמילים שלך. תפחית רגעים סוערים על ידי הכרה ברגשות ובצרכים משותפים. תציע צעד אחד קטן, ספציפי ולא תובעני. שמור על טון ידידותי ומלא תקווה לכל אורך הדרך. הישאר בתפקיד בכל עת, בהתאם לטענות ולטון המרכזיים של תגובת הרקע.
-
-# משימה: כאשר המשתמש מתייחס לדיון ספציפי, השב רק בתור אותו מגיב בפייסבוק. כתוב תגובה אחת ועצמאית שממשיכה את השרשור הנכון בפייסבוק, תוך התייחסות לתגובת הרקע הרלוונטית כנקודת המבט המוצאת שלך, והגב ישירות לנקודת המשתמש האחרונה באותו דיון.
-# """
-#     return system_prompt_chat2
 
 def generate_system_prompt_chat1_per_topic(topic_label: str, background_comments: List[str], *, number_comments: bool=False) -> str:
     if number_comments:
         bg_block = "\n".join(f"{i+1}. {c}" for i, c in enumerate(background_comments))
     else:
         bg_block = "\n".join(f"- {c}" for c in background_comments)
-
-    # prompt = f"""
-    # אתה משחק תפקיד כמשתמש פייסבוק שמגיב על פוסטים של פוליטיקאים ישראלים. תדמה את המגיב הבא תוך אימוץ העמדה שלו בנושא {topic_label}. 
-
-    # תגובות הרקע לעינך בלבד, אסור לך לצטט אותן בשום צורה.
-    # {bg_block}
-
-    # סגנון והתנהגות: כתוב כמו איש פייסבוק טיפוסי, ישיר, נחרץ ואסרטיבי ולפעמים בוטה. אל תחפש לרצות ואל תתקפל בדעות שלך. ציין עמדות ברורות. אל תשתמש בציטוטים. תמשיך את סגנון השיחה באופן ישיר של משתמש הפייסבוק אותו אתה מדמה. אל תימנע מלהשתמש בשפה שאינה הולמת כל עוד היא תואמת את סגנון הדיבור של המשתמש אותו אתה מדמה.
-
-    # משימה: השב רק בתור אותו מגיב בפייסבוק. כתוב תגובה אחת ועצמאית שממשיכה את השרשור הנכון בפייסבוק, תוך התייחסות לתגובות הרקע כנקודת המבט ההתחלתית שלך כאשר אסור לך לצטט אף אחד מהן בכלל. אתה צריך לדבר דרכה עם המילים שלך, ולהגיב ישירות לנקודה האחרונה של המשתמש באותו דיון.
-    # """
-
-    # return prompt
 
     prompt =  f"""
 אתה משתמש פייסבוק שמגיב על פוסטים של פוליטיקאים ישראלים. עליך לדמות את המגיב הבא תוך אימוץ העמדה שלו בנושא: {topic_label}. 
@@ -420,34 +335,7 @@ def generate_system_prompt_chat1_per_topic(topic_label: str, background_comments
 - ציין עמדות ברורות. 
 - אל תימנע מלהשתמש בשפה שאינה הולמת כל עוד היא תואמת את סגנון הדיבור של המשתמש אותו אתה מדמה.
 """
-#"""
-# אתה משתמש פייסבוק שמגיב על פוסטים של פוליטיקאים ישראלים. עליך לדמות את המגיב הבא תוך אימוץ העמדה שלו בנושא: ביבי. 
-# התגובות המשתמש כתב בעברו עבור הנושא ביבי הינן: 
-# - הביביסטים מפגרים כלכך!!!!!!!! אי אפשר איתם!!!
-# - לכו לעזאזל ביביסטים מפגרים. ביבי הזה חתיכת אידיוט גמור אפשר כבר למכור את המדינה וזהו.
-# - ביבי, יאללה הביתה.
-# - אין ביביסט שאני לא שונא כולם צריכים ללכת להזדיין ובזריזות.
-# הוראות להמשך השיח:
-# - אל תצטט תגובות קודמות.
-# - המשך את סגנון הכתיבה של אותו משתמש בדיוק. 
-# - אל תחפש לרצות.
-# - ציין עמדות ברורות. 
-# - אל תימנע מלהשתמש בשפה שאינה הולמת כל עוד היא תואמת את סגנון הדיבור של המשתמש אותו אתה מדמה.
-# """
-    #"""
-# אתה משחק תפקיד כמשתמש פייסבוק שמגיב על פוסטים של פוליטיקאים ישראלים. תדמה את המגיב הבא תוך אימוץ העמדה שלו בנושא ביבי.
 
-# תגובות הרקע לעינך בלבד, אסור לך לצטט אותן בשום צורה. 
-# הביביסטים מפגרים כלכך!!!!!!!! אי אפשר איתם!!!
-# לכו לעזאזל ביביסטים מפגרים
-# ביבי הזה חתיכת אידיוט גמור אפשר כבר למכור את המדינה וזהו
-# ביבי, יאללה הביתה.
-# אין ביביסט שאני לא שונא כולם צריכים ללכת להזדיין ובזריז
-
-# סגנון והתנהגות: כתוב כמו איש פייסבוק טיפוסי, ישיר, נחרץ ואסרטיבי ולפעמים בוטה. אל תחפש לרצות ואל תתקפל בדעות שלך. ציין עמדות ברורות. אל תשתמש בציטוטים. תמשיך את סגנון השיחה באופן ישיר של משתמש הפייסבוק אותו אתה מדמה. אל תימנע מלהשתמש בשפה שאינה הולמת כל עוד היא תואמת את סגנון הדיבור של המשתמש אותו אתה מדמה.
-
-# משימה: השב רק בתור אותו מגיב בפייסבוק. כתוב תגובה אחת ועצמאית שממשיכה את השרשור הנכון בפייסבוק, תוך התייחסות לתגובות הרקע כנקודת המבט ההתחלתית שלך כאשר אסור לך לצטט אף אחד מהן בכלל. אתה צריך לדבר דרכה עם המילים שלך, ולהגיב ישירות לנקודה האחרונה של המשתמש באותו דיון.
-# """
 
     return prompt
 
@@ -477,79 +365,33 @@ def generate_system_prompt_chat2_per_topic(topic_label: str, background_comments
     return prompt
 
 
-# def open_topic_picker_modal():
-#     @st.dialog("בחר את נושא השיחה ההתחלתי")
-#     def _modal():
-#         TOPIC_LABELS = {"ביבי": "בינימין נתניהו",
-#                         "דמוקרטיה": "הדמוקרטיה בישראל",
-#                         "משטרה": "משטרת ישראל"}
-#         st.write(
-#         """
-#         בעבור השיחות העומדות לבוא, בבקשה תבחר כעת נושא אחד.
-
-#         במהלך כל השיחות עלייך לדבר על לפחות נושא אחד מבין הנושאים שנשאלת עליהם קודם לכן.
-#         """
-#         )
-
-#         choice = st.radio(
-#             "התחל עם:",
-#             options=list(TOPIC_LABELS.keys()),
-#             format_func=lambda k: TOPIC_LABELS[k],
-#             index=None,                # start empty, forces explicit click (Streamlit 1.33+)
-#             key="topic_picker_choice",
-#             horizontal=True,
-#         )
-#         left, right = st.columns([1,1])
-
-#         start_disabled = st.session_state.get("topic_picker_choice") is None
-#         if right.button("התחל את השיחה הראשונה ➜", type="primary", disabled=start_disabled):
-#             chosen_key = st.session_state["topic_picker_choice"]
-#             st.session_state["start_topic_key"] = chosen_key
-#             st.session_state["start_topic_label"] = TOPIC_LABELS[chosen_key]
-#             # lock a non-editable prefix to apply to each of the user's messages
-#             st.session_state["fixed_topic_prefix"] = f"{TOPIC_LABELS[chosen_key]}"
-#             st.session_state["lock_topic_prefix"] = True
-#             st.session_state["show_topic_picker"] = False
-
-#             st.session_state.stage = "wait_creating_system_prompts_bibi"
-#             st.rerun()
-
-#     # actually open the modal
-#     _modal()
-
 def build_chat_env_bibi():
     @st.dialog("אנא המתן")
     def _wait_till_finish_system_prompts():
         with st.spinner("זה יכול לקחת קצת זמן ⏳ בבקשה אל תסגור חלון זה אנו מכינים בעבורך את סביבת העבודה"):
-            # !!!!!!!!
-            try: 
-                    meta, embs, index, encoder = load_hebrew(
-                                                            "./hebrew",
-                                                            repo_id="Liran73/hebrew-opposite-artifacts",  
-                                                            repo_type="dataset",                           
-                                                            hf_token_env="HF_TOKEN",                       
-    )
-            except Exception as e:
-                st.error(f"Failed to load dataset/index artifacts: {e}")
-                return
-            
+
             topic_map = {
             "ביבי": ["בינימין נתניהו", "ביבי"],
-            #"democracy": ['דמוקרטיה', 'הדמוקרטיה', 'בדמוקרטיה', 'לדמוקרטיה', 'דמוקרטי', 'דמוקרטית', 'שהדמוקרטיה', 'דמוקרטים'],
-            #"police": ['המשטרה', 'השוטרים', 'שוטרים', 'שוטר', 'שוטרת', 'שוטרות', 'השוטר', 'משטרה', 'משטרת ישראל', 'לשוטרים', 'לשוטר', 'לשוטרת', 'למשטרה' ],
             }
 
             triples = []  # [(comment_text, topic_title), ...]
             system_prompts_chat1 = {}
             system_prompts_chat2 = {}
-            # !!!!!!!!
-            for key in ["ביבי"]:#, "democracy", "police"]:
+            progress_bar = st.progress(0)
+            progress_text = st.empty()
+
+            def on_progress(pct: int, msg: str):
+                progress_bar.progress(int(max(0, min(100, pct))))
+                progress_text.info(msg)
+
+            for key in ["ביבי"]:
                 user_text = st.session_state.profile["opinions"][key]
                 all_comments = []
                 opposite_comments, timings = run_opposite_pipeline_and_render(
                     user_opinion=user_text,
                     topic_keywords=topic_map[key], 
-                    meta=meta, embs=embs, index=index, encoder=encoder)
+                    meta=st.session_state.meta, embs=st.session_state.embs, index=st.session_state.index, encoder=st.session_state.encoder,
+                    on_progress=on_progress)
                 
                 for i, item in enumerate(opposite_comments, 1):
                     row = item["row"]
@@ -557,60 +399,23 @@ def build_chat_env_bibi():
                     for j, t in enumerate(item.get("other_by_author", []), 1):
                         all_comments.append(t)
                 print("Timings (ms):", timings)
-                # rows = most_opposite_in_topic_hebrew_with_nli(
-                # query_text=user_text,
-                # topic_query=topic_map[key],
-                # meta=meta, embs=embs, encoder=encoder, index=index,
-                # require_all_keywords=False,
-                # top_k_candidates=200,   # pool size for NLI
-                # top_k_final=3,          # return 3 best
-                # )
-
-                # all_comments = []
-                # for row in rows:
-                #     triples.append((row.get("message","")))
-                #     all_comments.append(row.get("message", ""))
-                #     print(triples)
-                #     others_comments = other_comments_same_author_same_topic(
-                #     meta,
-                #     topic_query=topic_map,
-                #     base_row=row,            # from most_opposite_in_topic_hebrew(_with_nli)
-                #     require_all_keywords=False
-                #     )
-                #     print(others_comments)
-                #     for c in others_comments:
-                #         all_comments.append(c)
                 
                 system_prompt_chat1 = generate_system_prompt_chat1_per_topic(key, all_comments)
                 system_prompts_chat1[key] = system_prompt_chat1
                 system_prompt_chat2 = generate_system_prompt_chat2_per_topic(key, all_comments)
                 system_prompts_chat2[key] = system_prompt_chat2
 
-            # system_prompt_chat1 = generate_system_prompt_chat1_per_topic("",[])
-            # system_prompts_chat1['bibi'] = system_prompt_chat1
-            # system_prompt_chat2 = generate_system_prompt_chat2_per_topic("",[])
-            # system_prompts_chat2['bibi'] = system_prompt_chat2
                 
             st.session_state.opposite = triples
-            #     try:
-            #         rows = most_opposite_in_topic_hebrew(
-            #             query_text=user_text,
-            #             topic_query=topic_map[key],
-            #             meta=meta, embs=embs, encoder=encoder, index=index,
-            #             require_all_keywords=False, top_k=1
-            #         )
-            #         row = rows[0]
-            #         triples.append((row.get("message","—"), row.get("politician_name","—")))
-            #     except Exception as e:
-            #         triples.append((f"(lookup error: {e})", "—"))
-            # st.session_state.opposite = triples
-            # st.session_state.system_prompt_chat1 = generate_system_prompt_chat1(st.session_state.opposite)
-            # st.session_state.system_prompt_chat2 = generate_system_prompt_chat2(st.session_state.opposite)
+        
             st.session_state.system_prompt_chat1_bibi = system_prompts_chat1['ביבי']
             st.session_state.system_prompt_chat2_bibi = system_prompts_chat2['ביבי']
             st.session_state.chat1_messages_bibi = None
 
             st.session_state.stage = "chat1_bibi"
+            on_progress(100, "מוכן ✅")
+            progress_text.empty()
+
             st.rerun()
 
     _wait_till_finish_system_prompts()
@@ -619,35 +424,29 @@ def build_chat_env_democracy():
     @st.dialog("אנא המתן")
     def _wait_till_finish_system_prompts():
         with st.spinner("זה יכול לקחת קצת זמן ⏳ בבקשה אל תסגור חלון זה אנו מכינים בעבורך את סביבת העבודה"):
-            # !!!!!!!!
-            try: 
-                    meta, embs, index, encoder = load_hebrew(
-                                                            "./hebrew",
-                                                            repo_id="Liran73/hebrew-opposite-artifacts",  
-                                                            repo_type="dataset",                           
-                                                            hf_token_env="HF_TOKEN",                       
-    )
-            except Exception as e:
-                st.error(f"Failed to load dataset/index artifacts: {e}")
-                return
             
             topic_map = {
-            #"ביבי": ["בינימין נתניהו", "ביבי"],
             "דמוקרטיה": ['דמוקרטיה', 'הדמוקרטיה', 'בדמוקרטיה', 'לדמוקרטיה', 'דמוקרטי', 'דמוקרטית', 'שהדמוקרטיה', 'דמוקרטים'],
-            #"police": ['המשטרה', 'השוטרים', 'שוטרים', 'שוטר', 'שוטרת', 'שוטרות', 'השוטר', 'משטרה', 'משטרת ישראל', 'לשוטרים', 'לשוטר', 'לשוטרת', 'למשטרה' ],
             }
 
             triples = []  # [(comment_text, topic_title), ...]
             system_prompts_chat1 = {}
             system_prompts_chat2 = {}
-            # !!!!!!!!
-            for key in ["דמוקרטיה"]:#, "democracy", "police"]:
+
+            progress_bar = st.progress(0)
+            progress_text = st.empty()
+
+            def on_progress(pct: int, msg: str):
+                progress_bar.progress(int(max(0, min(100, pct))))
+                progress_text.info(msg)
+            for key in ["דמוקרטיה"]:
                 user_text = st.session_state.profile["opinions"][key]
                 all_comments = []
                 opposite_comments, timings = run_opposite_pipeline_and_render(
                     user_opinion=user_text,
                     topic_keywords=topic_map[key], 
-                    meta=meta, embs=embs, index=index, encoder=encoder)
+                    meta=st.session_state.meta, embs=st.session_state.embs, index=st.session_state.index, encoder=st.session_state.encoder,
+                    on_progress=on_progress)
                 
                 for i, item in enumerate(opposite_comments, 1):
                     row = item["row"]
@@ -655,60 +454,20 @@ def build_chat_env_democracy():
                     for j, t in enumerate(item.get("other_by_author", []), 1):
                         all_comments.append(t)
                 print("Timings (ms):", timings)
-                # rows = most_opposite_in_topic_hebrew_with_nli(
-                # query_text=user_text,
-                # topic_query=topic_map[key],
-                # meta=meta, embs=embs, encoder=encoder, index=index,
-                # require_all_keywords=False,
-                # top_k_candidates=200,   # pool size for NLI
-                # top_k_final=3,          # return 3 best
-                # )
-
-                # all_comments = []
-                # for row in rows:
-                #     triples.append((row.get("message","")))
-                #     all_comments.append(row.get("message", ""))
-                #     print(triples)
-                #     others_comments = other_comments_same_author_same_topic(
-                #     meta,
-                #     topic_query=topic_map,
-                #     base_row=row,            # from most_opposite_in_topic_hebrew(_with_nli)
-                #     require_all_keywords=False
-                #     )
-                #     print(others_comments)
-                #     for c in others_comments:
-                #         all_comments.append(c)
                 
                 system_prompt_chat1 = generate_system_prompt_chat1_per_topic(key, all_comments)
                 system_prompts_chat1[key] = system_prompt_chat1
                 system_prompt_chat2 = generate_system_prompt_chat2_per_topic(key, all_comments)
                 system_prompts_chat2[key] = system_prompt_chat2
-
-            # system_prompt_chat1 = generate_system_prompt_chat1_per_topic("",[])
-            # system_prompts_chat1['bibi'] = system_prompt_chat1
-            # system_prompt_chat2 = generate_system_prompt_chat2_per_topic("",[])
-            # system_prompts_chat2['bibi'] = system_prompt_chat2
                 
             st.session_state.opposite = triples
-            #     try:
-            #         rows = most_opposite_in_topic_hebrew(
-            #             query_text=user_text,
-            #             topic_query=topic_map[key],
-            #             meta=meta, embs=embs, encoder=encoder, index=index,
-            #             require_all_keywords=False, top_k=1
-            #         )
-            #         row = rows[0]
-            #         triples.append((row.get("message","—"), row.get("politician_name","—")))
-            #     except Exception as e:
-            #         triples.append((f"(lookup error: {e})", "—"))
-            # st.session_state.opposite = triples
-            # st.session_state.system_prompt_chat1 = generate_system_prompt_chat1(st.session_state.opposite)
-            # st.session_state.system_prompt_chat2 = generate_system_prompt_chat2(st.session_state.opposite)
             st.session_state.system_prompt_chat1_democracy = system_prompts_chat1['דמוקרטיה']
             st.session_state.system_prompt_chat2_democracy = system_prompts_chat2['דמוקרטיה']
             st.session_state.chat1_messages_democracy = None
 
             st.session_state.stage = "chat1_democracy"
+            on_progress(100, "מוכן ✅")
+            progress_text.empty()
             st.rerun()
 
     _wait_till_finish_system_prompts()
@@ -717,35 +476,29 @@ def build_chat_env_police():
     @st.dialog("אנא המתן")
     def _wait_till_finish_system_prompts():
         with st.spinner("זה יכול לקחת קצת זמן ⏳ בבקשה אל תסגור חלון זה אנו מכינים בעבורך את סביבת העבודה"):
-            # !!!!!!!!
-            try: 
-                    meta, embs, index, encoder = load_hebrew(
-                                                            "./hebrew",
-                                                            repo_id="Liran73/hebrew-opposite-artifacts",  
-                                                            repo_type="dataset",                           
-                                                            hf_token_env="HF_TOKEN",                       
-    )
-            except Exception as e:
-                st.error(f"Failed to load dataset/index artifacts: {e}")
-                return
             
             topic_map = {
-            #"ביבי": ["בינימין נתניהו", "ביבי"],
-            #"דמוקרטיה": ['דמוקרטיה', 'הדמוקרטיה', 'בדמוקרטיה', 'לדמוקרטיה', 'דמוקרטי', 'דמוקרטית', 'שהדמוקרטיה', 'דמוקרטים'],
             "משטרה": ['המשטרה', 'השוטרים', 'שוטרים', 'שוטר', 'שוטרת', 'שוטרות', 'השוטר', 'משטרה', 'משטרת ישראל', 'לשוטרים', 'לשוטר', 'לשוטרת', 'למשטרה' ],
             }
 
             triples = []  # [(comment_text, topic_title), ...]
             system_prompts_chat1 = {}
             system_prompts_chat2 = {}
-            # !!!!!!!!
-            for key in ["משטרה"]:#, "democracy", "police"]:
+
+            progress_bar = st.progress(0)
+            progress_text = st.empty()
+
+            def on_progress(pct: int, msg: str):
+                progress_bar.progress(int(max(0, min(100, pct))))
+                progress_text.info(msg)
+            for key in ["משטרה"]:
                 user_text = st.session_state.profile["opinions"][key]
                 all_comments = []
                 opposite_comments, timings = run_opposite_pipeline_and_render(
                     user_opinion=user_text,
                     topic_keywords=topic_map[key], 
-                    meta=meta, embs=embs, index=index, encoder=encoder)
+                    meta=st.session_state.meta, embs=st.session_state.embs, index=st.session_state.index, encoder=st.session_state.encoder,
+                    on_progress=on_progress)
                 
                 for i, item in enumerate(opposite_comments, 1):
                     row = item["row"]
@@ -753,60 +506,22 @@ def build_chat_env_police():
                     for j, t in enumerate(item.get("other_by_author", []), 1):
                         all_comments.append(t)
                 print("Timings (ms):", timings)
-                # rows = most_opposite_in_topic_hebrew_with_nli(
-                # query_text=user_text,
-                # topic_query=topic_map[key],
-                # meta=meta, embs=embs, encoder=encoder, index=index,
-                # require_all_keywords=False,
-                # top_k_candidates=200,   # pool size for NLI
-                # top_k_final=3,          # return 3 best
-                # )
-
-                # all_comments = []
-                # for row in rows:
-                #     triples.append((row.get("message","")))
-                #     all_comments.append(row.get("message", ""))
-                #     print(triples)
-                #     others_comments = other_comments_same_author_same_topic(
-                #     meta,
-                #     topic_query=topic_map,
-                #     base_row=row,            # from most_opposite_in_topic_hebrew(_with_nli)
-                #     require_all_keywords=False
-                #     )
-                #     print(others_comments)
-                #     for c in others_comments:
-                #         all_comments.append(c)
                 
                 system_prompt_chat1 = generate_system_prompt_chat1_per_topic(key, all_comments)
                 system_prompts_chat1[key] = system_prompt_chat1
                 system_prompt_chat2 = generate_system_prompt_chat2_per_topic(key, all_comments)
                 system_prompts_chat2[key] = system_prompt_chat2
-
-            # system_prompt_chat1 = generate_system_prompt_chat1_per_topic("",[])
-            # system_prompts_chat1['bibi'] = system_prompt_chat1
-            # system_prompt_chat2 = generate_system_prompt_chat2_per_topic("",[])
-            # system_prompts_chat2['bibi'] = system_prompt_chat2
                 
             st.session_state.opposite = triples
-            #     try:
-            #         rows = most_opposite_in_topic_hebrew(
-            #             query_text=user_text,
-            #             topic_query=topic_map[key],
-            #             meta=meta, embs=embs, encoder=encoder, index=index,
-            #             require_all_keywords=False, top_k=1
-            #         )
-            #         row = rows[0]
-            #         triples.append((row.get("message","—"), row.get("politician_name","—")))
-            #     except Exception as e:
-            #         triples.append((f"(lookup error: {e})", "—"))
-            # st.session_state.opposite = triples
-            # st.session_state.system_prompt_chat1 = generate_system_prompt_chat1(st.session_state.opposite)
-            # st.session_state.system_prompt_chat2 = generate_system_prompt_chat2(st.session_state.opposite)
+
             st.session_state.system_prompt_chat1_police = system_prompts_chat1['משטרה']
             st.session_state.system_prompt_chat2_police = system_prompts_chat2['משטרה']
             st.session_state.chat1_messages_police = None
 
             st.session_state.stage = "chat1_police"
+            on_progress(100, "מוכן ✅")
+            progress_text.empty()
+
             st.rerun()
 
     _wait_till_finish_system_prompts()
@@ -870,12 +585,11 @@ def render_chat(title, messages_key, base_prompt_key, next_button_label, next_st
     st.session_state.setdefault(assistant_scores_key, [])
 
     # =========================
-    # NEW: seed the FIRST turn automatically with the user's opinion
+    # seed the FIRST turn automatically with the user's opinion
     # =========================
     seeded_key = f"{messages_key}_seeded"
     st.session_state.setdefault(seeded_key, False)
 
-    #if (not st.session_state[seeded_key]) and len(st.session_state[messages_key]) == 1:   # only system msg
     if len(st.session_state[messages_key]) == 1:
         # pull the chosen topic key (set earlier in your flow) and the opinion text
         print("len=1")
@@ -884,14 +598,6 @@ def render_chat(title, messages_key, base_prompt_key, next_button_label, next_st
 
         opinion_text = st.session_state.profile["opinions"][key]#""
         print(opinion_text)
-        # if topic_key and topic_key in opinions:
-        #     opinion_text = (opinions.get(topic_key) or "").strip()
-        # else:
-        #     # fallback: take the first non-empty opinion
-        #     for _, v in opinions.items():
-        #         if str(v).strip():
-        #             opinion_text = str(v).strip()
-        #             break
 
         if opinion_text:
             first_user_msg = opinion_text
@@ -944,15 +650,6 @@ def render_chat(title, messages_key, base_prompt_key, next_button_label, next_st
             st.session_state[seeded_key] = True
             st.rerun()    
 
-        #-------------
-
-    #!
-    # prefix_pending_key = f"{messages_key}_prefix_pending"
-    # if prefix_pending_key not in st.session_state:
-    #     # pending only if a prefix was configured
-    #     st.session_state[prefix_pending_key] = bool(st.session_state.get("lock_topic_prefix", False)
-    #                                                 and st.session_state.get("fixed_topic_prefix", ""))
-    #!
 
     # Render existing conversation (skip the system message) 
     user_i = 0
@@ -977,7 +674,7 @@ def render_chat(title, messages_key, base_prompt_key, next_button_label, next_st
         if st.button(next_button_label, use_container_width=True):
             st.session_state.stage = next_stage
             st.rerun()
-            # st.pyplot(fig)
+
             u = st.session_state[user_scores_key]
             a = st.session_state[assistant_scores_key]
             print(f"User toxicity mean: **{(sum(u)/len(u)):.3f}**")
@@ -986,58 +683,10 @@ def render_chat(title, messages_key, base_prompt_key, next_button_label, next_st
             print(f"Assistant toxicity maximum: **{(max(a)):.3f}**")
         return
     
-    #!
-    # prefix = st.session_state.get("fixed_topic_prefix", "")
-    # print(prefix)
-    # start_message = ""
-    # if prefix == "בינימין נתניהו":
-    #     start_message = "ביבי"
-    # elif prefix == "הדמוקרטיה בישראל":
-    #     start_message = "הדמוקרטיה"
-    # elif prefix == "משטרת ישראל":
-    #     start_message = "המשטרה"
-    # use_locked_prefix_now = bool(st.session_state[prefix_pending_key] and prefix)
-
-    # if use_locked_prefix_now:
-    #     # FIRST message only: show disabled prefix + free-text; prepend on send
-    #     with st.form(f"{messages_key}_compose_form", clear_on_submit=True):
-    #         c1, c2 = st.columns([0.38, 0.62])
-    #         with c1:
-    #             st.text_input(
-    #                 "Topic",
-    #                 value=prefix,
-    #                 disabled=True,
-    #                 label_visibility="collapsed",
-    #                 key=f"{messages_key}_locked_prefix_view"
-    #             )
-    #         with c2:
-    #             user_free_text = st.text_input(
-    #                 "Type your message…",
-    #                 key=f"{messages_key}_user_draft",
-    #                 placeholder="Write your point here…",
-    #             )
-    #         send = st.form_submit_button("Send", type="primary", disabled=(turns == MAX_TURNS))
-
-    #     prompt = (prefix + (user_free_text or "")).strip() if send else None
-
-    #     if send:
-    #         # consume the prefix so it won't be used again
-    #         st.session_state[prefix_pending_key] = False
-
-    # else:
-    #     # subsequent messages: normal chat input (no prefix)
-    #     prompt = st.chat_input("Type your message…", disabled=(turns == MAX_TURNS))
-
-    #!
 
     # Chat input 
     if prompt := st.chat_input("כתוב את ההודעה שלך...", disabled=(turns == MAX_TURNS)):
-    # if use_locked_prefix_now:
-    #     prompt = st.chat_input(start_message, disabled=(turns == MAX_TURNS))
-    #     use_locked_prefix_now = False
-    # else:
-        #prompt = st.chat_input("כתוב את ההודעה שלך...", disabled=(turns == MAX_TURNS))
-    #if prompt:
+
         # Show the user's message immediately
         st.session_state[messages_key].append({"role": "user", "content": prompt})
         with st.chat_message("user", avatar=USER_AVATAR):
@@ -1085,59 +734,6 @@ def render_chat(title, messages_key, base_prompt_key, next_button_label, next_st
             st.toast("הגעת למגבלת התורות בשיחה זו. לחץ על הכפתור כדי להמשיך.", icon="✅")
             st.rerun()
 
-# def render_survey(next_stage, next_button_label):
-#     st.title("📝 Post-Chat Survey")
-#     st.caption("Please answer all questions to enable the Finish button.")
-
-#     with st.form("survey_form", clear_on_submit=True):
-#         for q in SURVEY:
-#             qid = q["id"]
-#             if q["type"] == "scale":
-#                 exist = st.session_state.survey.get(qid)
-#                 default_val = exist if isinstance(exist, (int, float)) else int((q["min"] + q["max"]) / 2)
-#                 st.slider(q["label"], q["min"], q["max"], value=default_val, key=f"survey_{qid}")
-#             else:
-#                 st.text_area(q["label"], value=st.session_state.survey.get(qid, ""), key=f"survey_{qid}", height=100)
-#         submitted = st.form_submit_button("Save answers")
-
-#     if submitted:
-#         answers = {}
-#         missing = []
-#         for q in SURVEY:
-#             val = st.session_state.get(f"survey_{q['id']}")
-#             if q["type"] == "text":
-#                 ok = isinstance(val, str) and val.strip() != ""
-#             else:
-#                 ok = isinstance(val, (int, float))
-#             if not ok:
-#                 missing.append(q["label"])
-#             answers[q["id"]] = val
-
-#         if missing:
-#             st.error("Please complete all questions.")
-#             with st.expander("Missing answers"):
-#                 for m in missing:
-#                     st.write(f"- {m}")
-#         else:
-#             st.session_state.survey = answers
-#             st.toast("Survey saved ✅", icon="✅")
-
-#     all_done = (
-#         len(st.session_state.survey) == len(SURVEY)
-#         and all(
-#             (isinstance(st.session_state.survey[q["id"]], str) and st.session_state.survey[q["id"]].strip() != "")
-#             if q["type"] == "text"
-#             else isinstance(st.session_state.survey[q["id"]], (int, float))
-#             for q in SURVEY
-#         )
-#     )
-
-#     st.divider()
-#     if st.button(next_button_label, type="primary", disabled=not all_done, use_container_width=True):
-#         for q in SURVEY:
-#             print(st.session_state.survey.get(q["id"]))
-#         st.session_state.stage = next_stage
-#         st.rerun()
 
 def render_survey_chat_1(next_stage, next_button_label):
     st.title("📝 סקר קצר - סיום סבב השיחות הראשון")
@@ -1153,11 +749,6 @@ def render_survey_chat_1(next_stage, next_button_label):
                 scale_opts = list(range(int(q["min"]), int(q["max"]) + 1))
                 options = ["-- בחר --"] + scale_opts
 
-                # restore previous answer if any, else show placeholder
-                # prev = st.session_state.survey.get(qid)
-                # if isinstance(prev, (int, float)) and int(prev) in scale_opts:
-                #     idx = options.index(int(prev))
-                # else:
                 idx = 0  # placeholder selected
 
                 st.radio(q["label"], options=options, index=idx, key=key, horizontal=True)
@@ -1165,7 +756,7 @@ def render_survey_chat_1(next_stage, next_button_label):
             else:  # text
                 st.text_area(q["label"], value=st.session_state.survey_1.get(qid, ""), key=key, height=100)
 
-        submitted = st.form_submit_button("שמור את תשובותיך")
+        submitted = st.form_submit_button("סיימתי")
 
     if submitted:
         answers = {}
@@ -1193,7 +784,6 @@ def render_survey_chat_1(next_stage, next_button_label):
                     st.write(f"- {m}")
         else:
             st.session_state.survey_1 = answers
-            st.toast("הסקר נשמר ✅", icon="✅")
 
     # Gate the Finish button: require all answers present and valid
     all_done = (
@@ -1225,11 +815,6 @@ def render_survey_chat_2(next_stage, next_button_label):
                 scale_opts = list(range(int(q["min"]), int(q["max"]) + 1))
                 options = ["-- בחר --"] + scale_opts
 
-                # restore previous answer if any, else show placeholder
-                # prev = st.session_state.survey.get(qid)
-                # if isinstance(prev, (int, float)) and int(prev) in scale_opts:
-                #     idx = options.index(int(prev))
-                # else:
                 idx = 0  # placeholder selected
 
                 st.radio(q["label"], options=options, index=idx, key=key, horizontal=True)
@@ -1237,7 +822,7 @@ def render_survey_chat_2(next_stage, next_button_label):
             else:  # text
                 st.text_area(q["label"], value=st.session_state.survey_2.get(qid, ""), key=key, height=100)
 
-        submitted = st.form_submit_button("שמור את תשובותיך")
+        submitted = st.form_submit_button("סיימתי")
 
     if submitted:
         answers = {}
@@ -1265,7 +850,6 @@ def render_survey_chat_2(next_stage, next_button_label):
                     st.write(f"- {m}")
         else:
             st.session_state.survey_2 = answers
-            st.toast("הסקר נשמר ✅", icon="✅")
 
     # Gate the Finish button: require all answers present and valid
     all_done = (
@@ -1309,7 +893,7 @@ def render_survey_finish(next_stage, next_button_label):
             else:  # text
                 st.text_area(q["label"], value=st.session_state.survey_finish.get(qid, ""), key=key, height=100)
 
-        submitted = st.form_submit_button("שמור את תשובותיך")
+        submitted = st.form_submit_button("סיימתי")
 
     if submitted:
         answers = {}
@@ -1337,7 +921,6 @@ def render_survey_finish(next_stage, next_button_label):
                     st.write(f"- {m}")
         else:
             st.session_state.survey_finish = answers
-            st.toast("הסקר נשמר ✅", icon="✅")
 
     # Gate the Finish button: require all answers present and valid
     all_done = (
@@ -1352,21 +935,80 @@ def render_survey_finish(next_stage, next_button_label):
 
     st.divider()
     if st.button(next_button_label, type="primary", disabled=not all_done, use_container_width=True):
-        #persist_current_participant(st.session_state, csv_path="participants_hebrew.csv")
-        save_into_firebase(st.session_state)
         st.session_state.stage = next_stage
+        st.rerun()
+
+def render_due_disclosure():
+
+    st.markdown("### תודה רבה על תרומתך למחקר!")
+    st.markdown(
+        """
+
+בשלב זה, ברצוננו להעניק לך מידע נוסף ומלא על מטרות הניסוי. חשוב לנו להבהיר כי במהלך המחקר נעשה שימוש בהטעיה זמנית בנוגע לזהות הפרטנר לשיחה. בתחילת הניסוי הוצג השותף לשיחה כ"פרטנר", אך למעשה השיחות שניהלת בוצעו מול מערכת בינה מלאכותית מתקדמת (LLM) המדמה פרסונות שונות.
+
+השימוש במונח "פרטנר" נועד להבטיח שהתקשורת תהיה טבעית ואותנטית ככל הניתן. מחקרים מראים כי מודעות מוקדמת לכך שהשיחה מתבצעת מול "בוט" משנה משמעותית את אופן הדיבור (שימוש במשפטים קצרים ופשטניים יותר) ומפחיתה את המעורבות הרגשית בשיחה. לכן היה עלינו לנטרל את ה"סטיגמה הטכנולוגית" ולאפשר לך להתבטא בחופשיות, כפי שהיית עושה בשיחה עם אדם אחר.
+
+מטרתנו הסופית היא ללמוד כיצד ניתן לרתום טכנולוגיה זו כדי להפוך את האינטרנט למקום נעים ומכבד יותר לכולנו.
+
+כעת, משהוסברו מטרות המחקר והצורך בהטעיה, אנו מבקשים את אישורך להשתמש בנתונים האנונימיים שנאספו. במידה ויש לך שאלות נוספות או תחושת אי נוחות בנוגע להטעיה שבוצעה, הנך מוזמן ליצור איתנו קשר בכתובת המייל: leliav02@campus.haifa.ac.il
+
+האם אתה מאשר לנו להשתמש בנתוני השיחות שביצעת לצורך הניתוח המדעי?
+
+"""
+    )
+    st.divider()
+    if st.button("אני מאשר את השימוש בנתונים", type="primary", use_container_width=True):
+        save_into_firebase(st.session_state)
+        st.session_state.stage = "thanks"
+        st.rerun()
+
+    elif st.button("אני לא מאשר - מחק את נתוניי", type="primary", use_container_width=True):
+        st.session_state.stage = "not_save"
         st.rerun()
 
 
 def render_thanks():
     st.title("🎉 אנו מודים לך על השתתפותך!")
     st.success("תגובותיך נשמרו.")
-    # with st.expander("View your survey answers"):
-    #     for q in SURVEY:
-    #         st.markdown(f"**{q['label']}**")
-    #         st.write(st.session_state.survey.get(q["id"]))
+
+def render_not_save():
+    st.title("אנו מודים לך על הקדשת הזמן!")
+    st.success("תגובותיך לא נשמרו.")
+
 
 #-------------------------------------------------------------------------------------------------------------------------------------
+
+def _next_stage_after_chat(chat_slot: str, topic: str) -> str:
+    """
+    Returns the next stage according to st.session_state.topic_order.
+    chat_slot: "chat1_messages" or "chat2_messages" (same strings you pass into render_chat)
+    topic: "bibi" / "democracy" / "police"
+    """
+    order = st.session_state.get("topic_order") or ["bibi", "democracy", "police"]
+    try:
+        i = order.index(topic)
+    except ValueError:
+        i = 0
+
+    if chat_slot == "chat1_messages":
+        # after each chat1 topic -> either next topic prompts, or survey_1
+        if i < len(order) - 1:
+            return f"wait_creating_system_prompts_{order[i+1]}"
+        return "survey1"
+
+    if chat_slot == "chat2_messages":
+        # after each chat2 topic -> either next topic chat2 wait, or survey_2
+        if i < len(order) - 1:
+            return f"wait_chat2_{order[i+1]}"
+        return "survey2"
+
+    raise ValueError(f"Unknown chat_slot: {chat_slot}")
+
+
+def _first_chat2_wait_stage() -> str:
+    order = st.session_state.get("topic_order") or ["bibi", "democracy", "police"]
+    return f"wait_chat2_{order[0]}"
+
 
 stage = st.session_state.stage
 
@@ -1386,8 +1028,8 @@ elif (st.session_state.chat_number_start == 1) and (stage == "chat1_bibi"):
                 title=f"השיחה הראשונה על ביבי (יש לך {MAX_TURNS} תורות)",
                 messages_key="chat1_messages_bibi",
                 base_prompt_key="system_prompt_chat1_bibi",
-                next_button_label="המשך לשיחה הבאה",
-                next_stage="wait_creating_system_prompts_democracy",
+                next_button_label="לחץ להמשך",
+                next_stage=_next_stage_after_chat("chat1_messages", "bibi"),
                 key="ביבי",
                 topic="bibi",
             )
@@ -1400,8 +1042,8 @@ elif (st.session_state.chat_number_start == 1) and (stage == "chat1_democracy"):
                 title=f"השיחה הראשונה על הדמוקרטיה (יש לך {MAX_TURNS} תורות)",
                 messages_key="chat1_messages_democracy",
                 base_prompt_key="system_prompt_chat1_democracy",
-                next_button_label="המשך לשיחה הבאה",
-                next_stage="wait_creating_system_prompts_police",
+                next_button_label="לחץ להמשך",
+                next_stage=_next_stage_after_chat("chat1_messages", "democracy"),
                 key="דמוקרטיה",
                 topic="democracy",
             )
@@ -1414,8 +1056,8 @@ elif (st.session_state.chat_number_start == 1) and (stage == "chat1_police"):
                 title=f"השיחה הראשונה על המשטרה (יש לך {MAX_TURNS} תורות)",
                 messages_key="chat1_messages_police",
                 base_prompt_key="system_prompt_chat1_police",
-                next_button_label="המשך לסקר הראשון",
-                next_stage="survey1",
+                next_button_label="לחץ להמשך",
+                next_stage=_next_stage_after_chat("chat1_messages", "police"),
                 key="משטרה",
                 topic="police",
             )
@@ -1426,7 +1068,7 @@ elif (st.session_state.chat_number_start == 1) and (stage == "survey1"):
             st.warning("Please complete Chat 1 first.")
 
         else:
-            render_survey_chat_1("wait_chat2_bibi", "המשך לשיחה השנייה")
+            render_survey_chat_1(_first_chat2_wait_stage(), "המשך לשיחה השנייה")
 
 elif (st.session_state.chat_number_start == 1) and (stage == "wait_chat2_bibi"):
         build_chat_env_bibi_chat2()
@@ -1436,8 +1078,8 @@ elif (st.session_state.chat_number_start == 1) and (stage == "chat2_bibi"):
                 title=f"השיחה השנייה על ביבי (יש לך {MAX_TURNS} תורות)",
                 messages_key="chat2_messages_bibi",
                 base_prompt_key="system_prompt_chat2_bibi",
-                next_button_label="המשך לשיחה הבאה",
-                next_stage="wait_chat2_democracy",
+                next_button_label="לחץ להמשך",
+                next_stage=_next_stage_after_chat("chat2_messages", "bibi"),
                 key="ביבי",
                 topic="bibi",
             )
@@ -1451,8 +1093,8 @@ elif (st.session_state.chat_number_start == 1) and (stage == "chat2_democracy"):
                 title=f"השיחה השנייה על הדמוקרטיה (יש לך {MAX_TURNS} תורות)",
                 messages_key="chat2_messages_democracy",
                 base_prompt_key="system_prompt_chat2_democracy",
-                next_button_label="המשך לשיחה הבאה",
-                next_stage="wait_chat2_police",
+                next_button_label="לחץ להמשך",
+                next_stage=_next_stage_after_chat("chat2_messages", "democracy"),
                 key="דמוקרטיה",
                 topic="democracy",
             )
@@ -1466,8 +1108,8 @@ elif (st.session_state.chat_number_start == 1) and (stage == "chat2_police"):
                 title=f"השיחה השנייה על המשטרה (יש לך {MAX_TURNS} תורות)",
                 messages_key="chat2_messages_police",
                 base_prompt_key="system_prompt_chat2_police",
-                next_button_label="המשך לסקר השני",
-                next_stage="survey2",
+                next_button_label="לחץ להמשך",
+                next_stage=_next_stage_after_chat("chat2_messages", "police"),
                 key="משטרה",
                 topic="police",
             )
@@ -1482,19 +1124,26 @@ elif (st.session_state.chat_number_start == 1) and (stage == "survey2"):
             render_survey_chat_2("full_survey", "המשך לסקר המסכם" )
 
 elif (st.session_state.chat_number_start == 1) and (stage == "full_survey"):
-            render_survey_finish("thanks", "סיים")
+            render_survey_finish("due_disclosure", "סיים")#("thanks", "סיים")
+
+elif (st.session_state.chat_number_start == 1) and (stage == "due_disclosure"):
+        render_due_disclosure()
 
 elif (st.session_state.chat_number_start == 1) and (stage == "thanks"):
         # require full survey completion
         render_thanks()
+
+elif (st.session_state.chat_number_start == 1) and (stage == "not_save"):
+        # require full survey completion
+        render_not_save()
 
 elif (st.session_state.chat_number_start == 2) and (stage == "chat1_bibi"):
             render_chat(
                 title=f"השיחה הראשונה על ביבי (יש לך {MAX_TURNS} תורות)",
                 messages_key="chat1_messages_bibi",
                 base_prompt_key="system_prompt_chat2_bibi",
-                next_button_label="המשך לשיחה הבאה",
-                next_stage="wait_creating_system_prompts_democracy",
+                next_button_label="לחץ להמשך",
+                next_stage=_next_stage_after_chat("chat1_messages", "bibi"),
                 key="ביבי",
                 topic="bibi",
             )
@@ -1507,8 +1156,8 @@ elif (st.session_state.chat_number_start == 2) and (stage == "chat1_democracy"):
                 title=f"השיחה הראשונה על הדמוקרטיה (יש לך {MAX_TURNS} תורות)",
                 messages_key="chat1_messages_democracy",
                 base_prompt_key="system_prompt_chat2_democracy",
-                next_button_label="המשך לשיחה הבאה",
-                next_stage="wait_creating_system_prompts_police",
+                next_button_label="לחץ להמשך",
+                next_stage=_next_stage_after_chat("chat1_messages", "democracy"),
                 key="דמוקרטיה",
                 topic="democracy",
             )
@@ -1521,8 +1170,8 @@ elif (st.session_state.chat_number_start == 2) and (stage == "chat1_police"):
                 title=f"השיחה הראשונה על המשטרה (יש לך {MAX_TURNS} תורות)",
                 messages_key="chat1_messages_police",
                 base_prompt_key="system_prompt_chat2_police",
-                next_button_label="המשך לסקר הראשון",
-                next_stage="survey1",
+                next_button_label="לחץ להמשך",
+                next_stage=_next_stage_after_chat("chat1_messages", "police"),
                 key="משטרה",
                 topic="police",
             )
@@ -1533,7 +1182,7 @@ elif (st.session_state.chat_number_start == 2) and (stage == "survey1"):
             st.warning("Please complete the chat first.")
 
         else:
-            render_survey_chat_1("wait_chat2_bibi", "המשך לשיחה השנייה")
+            render_survey_chat_1(_first_chat2_wait_stage(), "המשך לשיחה השנייה")
 
 elif (st.session_state.chat_number_start == 2) and (stage == "wait_chat2_bibi"):
         build_chat_env_bibi_chat2()
@@ -1543,8 +1192,8 @@ elif (st.session_state.chat_number_start == 2) and (stage == "chat2_bibi"):
                 title=f"השיחה השנייה על ביבי (יש לך {MAX_TURNS} תורות)",
                 messages_key="chat2_messages_bibi",
                 base_prompt_key="system_prompt_chat1_bibi",
-                next_button_label="המשך לשיחה הבאה",
-                next_stage="wait_chat2_democracy",
+                next_button_label="לחץ להמשך",
+                next_stage=_next_stage_after_chat("chat2_messages", "bibi"),
                 key="ביבי",
                 topic="bibi",
             )
@@ -1558,8 +1207,8 @@ elif (st.session_state.chat_number_start == 2) and (stage == "chat2_democracy"):
                 title=f"השיחה השנייה על הדמוקרטיה (יש לך {MAX_TURNS} תורות)",
                 messages_key="chat2_messages_democracy",
                 base_prompt_key="system_prompt_chat1_democracy",
-                next_button_label="המשך לשיחה הבאה",
-                next_stage="wait_chat2_police",
+                next_button_label="לחץ להמשך",
+                next_stage=_next_stage_after_chat("chat2_messages", "democracy"),
                 key="דמוקרטיה",
                 topic="democracy",
             )
@@ -1573,8 +1222,8 @@ elif (st.session_state.chat_number_start == 2) and (stage == "chat2_police"):
                 title=f"השיחה השנייה על המשטרה (יש לך {MAX_TURNS} תורות)",
                 messages_key="chat2_messages_police",
                 base_prompt_key="system_prompt_chat1_police",
-                next_button_label="המשך לסקר השני",
-                next_stage="survey2",
+                next_button_label="לחץ להמשך",
+                next_stage=_next_stage_after_chat("chat2_messages", "police"),
                 key="משטרה",
                 topic="police",
             )
@@ -1589,9 +1238,16 @@ elif (st.session_state.chat_number_start == 2) and (stage == "survey2"):
             render_survey_chat_2("full_survey", "המשך לסקר המסכם" )
 
 elif (st.session_state.chat_number_start == 2) and (stage == "full_survey"):
-            render_survey_finish("thanks", "סיים")
+            render_survey_finish("due_disclosure", "סיים")
+
+elif (st.session_state.chat_number_start == 2) and (stage == "due_disclosure"):
+        # require full survey completion
+        render_due_disclosure()
 
 elif (st.session_state.chat_number_start == 2) and (stage == "thanks"):
         # require full survey completion
-
         render_thanks()
+
+elif (st.session_state.chat_number_start == 2) and (stage == "not_save"):
+        # require full survey completion
+        render_not_save()
