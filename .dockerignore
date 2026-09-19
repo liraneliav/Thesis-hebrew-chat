@@ -4,7 +4,7 @@
 *service_account*
 
 # local artifacts (downloaded from HF at runtime)
-english/
+hebrew/
 *.npy
 *.parquet
 *.bin
