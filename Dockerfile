@@ -1,30 +1,37 @@
-# secrets
-.env
-*.json
-*service_account*
+FROM python:3.11-slim
 
-# local artifacts / data
-hebrew/
-*.npy
-*.parquet
-*.bin
+# ---- Environment ----
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
+ENV PORT=8080
 
-# python cache
-__pycache__/
-*.pyc
-*.pyo
-*.pyd
+# HuggingFace cache (kept inside container)
+ENV HF_HOME=/app/.cache/huggingface
+ENV TRANSFORMERS_CACHE=/app/.cache/huggingface
 
-# common envs
-.venv/
-venv/
+WORKDIR /app
 
-# optional caches
-.cache/
-.huggingface/
+# ---- System deps (minimal) ----
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    cmake \
+    && rm -rf /var/lib/apt/lists/*
 
-# OS/editor
-.DS_Store
-Thumbs.db
-.vscode/
-.idea/
+# ---- Install Python deps ----
+COPY requirements.txt /app/requirements.txt
+
+RUN pip install --upgrade pip && \
+    pip install --no-cache-dir -r /app/requirements.txt
+
+# ---- Copy app ----
+COPY . /app
+
+# ---- Expose ----
+EXPOSE 8080
+
+# ---- Run Streamlit ----
+CMD ["streamlit", "run", "chat_hebrew.py", \
+     "--server.address", "0.0.0.0", \
+     "--server.port", "8080", \
+     "--server.headless", "true", \
+     "--browser.gatherUsageStats", "false"]
