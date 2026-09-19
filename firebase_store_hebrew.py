@@ -5,9 +5,23 @@ from typing import Any, Dict, Optional
 import firebase_admin
 from firebase_admin import credentials, firestore
 
+# def _get_db():
+#     if not firebase_admin._apps:
+#         # On Cloud Run: set FIREBASE_SERVICE_ACCOUNT_HEBREW_JSON to the full
+#         # JSON content of the service account file (single-line or pretty-printed).
+#         # For local dev: set FIREBASE_SERVICE_ACCOUNT to a file path.
+#         json_content = os.environ.get("FIREBASE_SERVICE_ACCOUNT_HEBREW_JSON")
+#         if json_content:
+#             cred = credentials.Certificate(json.loads(json_content))
+#         else:
+#             path = os.environ.get("FIREBASE_SERVICE_ACCOUNT")
+#             cred = credentials.Certificate(path)
+#         firebase_admin.initialize_app(cred)
+#     return firestore.client()
+
 def _get_db():
     if not firebase_admin._apps:
-        path = os.environ.get("FIREBASE_SERVICE_ACCOUNT")
+        path = os.environ.get("FIREBASE_SERVICE_ACCOUNT_ENGLISH")
         cred = credentials.Certificate(path)
         firebase_admin.initialize_app(cred)
     return firestore.client()
