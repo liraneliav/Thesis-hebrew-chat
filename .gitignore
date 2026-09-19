@@ -4,7 +4,7 @@
 *service_account*
 
 # local artifacts / data
-english/
+hebrew/
 *.npy
 *.parquet
 *.bin
