@@ -21,7 +21,7 @@ from firebase_admin import credentials, firestore
 
 def _get_db():
     if not firebase_admin._apps:
-        path = os.environ.get("FIREBASE_SERVICE_ACCOUNT_ENGLISH")
+        path = os.environ.get("FIREBASE_SERVICE_ACCOUNT")
         cred = credentials.Certificate(path)
         firebase_admin.initialize_app(cred)
     return firestore.client()
