@@ -15,6 +15,9 @@ from toxicity import measuring_toxicity
 from opposite_hebrew_nli_gpt import run_opposite_pipeline_and_render #,load_hebrew
 from firebase_store_hebrew import save_into_firebase
 from huggingface_hub import snapshot_download
+from typing import List
+import statistics
+import math
 # --- Global RTL styles (Hebrew/Arabic support) ---
 st.markdown("""
 <style>
@@ -532,36 +535,45 @@ def inject_global_css():
     /* user bubble — indigo gradient, right side
        Uses structural selector so it works regardless of which testid
        Streamlit assigns to the content wrapper in any version. */
-    [data-testid="stChatMessage"]:has([data-testid="chatAvatarIcon-user"]) > div:not([data-testid^="chatAvatarIcon"]) {
-        background: linear-gradient(135deg, #5B52F0 0%, #7C73FF 100%) !important;
-        color: #ffffff !important;
-        border-radius: 20px 20px 4px 20px !important;
-        padding: 0.85rem 1.15rem !important;
+    [data-testid="stChatMessage"]:has(.wa-user) [data-testid="stChatMessageContent"] {
+        background: #DCF8C6 !important;
+        color: #111B21 !important;
+        border-radius: 12px 12px 2px 12px !important;
+        padding: 0.6rem 0.9rem !important;
         max-width: 84% !important;
         flex-grow: 0 !important;
         flex-shrink: 1 !important;
         margin-left: auto !important;
         margin-right: 0 !important;
-        box-shadow: 0 3px 14px rgba(91,82,240,0.28) !important;
+        box-shadow: 0 1px 1px rgba(0,0,0,0.13) !important;
         border: none !important;
     }
-    [data-testid="stChatMessage"]:has([data-testid="chatAvatarIcon-user"]) > div:not([data-testid^="chatAvatarIcon"]) p,
-    [data-testid="stChatMessage"]:has([data-testid="chatAvatarIcon-user"]) > div:not([data-testid^="chatAvatarIcon"]) * {
-        color: #ffffff !important;
+    [data-testid="stChatMessage"]:has(.wa-user) [data-testid="stChatMessageContent"] p,
+    [data-testid="stChatMessage"]:has(.wa-user) [data-testid="stChatMessageContent"] * {
+        color: #111B21 !important;
         margin-bottom: 0 !important;
     }
 
     /* assistant bubble — white card, left side */
-    [data-testid="stChatMessage"]:has([data-testid="chatAvatarIcon-assistant"]) > div:not([data-testid^="chatAvatarIcon"]) {
-        background: #ffffff !important;
-        color: #1A1A2E !important;
-        border-radius: 20px 20px 20px 4px !important;
-        padding: 0.85rem 1.15rem !important;
+    [data-testid="stChatMessage"]:has(.wa-assistant) [data-testid="stChatMessageContent"] {
+        background: #ECE5DD !important;
+        color: #111B21 !important;
+        border-radius: 12px 12px 12px 2px !important;
+        padding: 0.6rem 0.9rem !important;
         max-width: 84% !important;
         flex-grow: 0 !important;
         flex-shrink: 1 !important;
-        border: 1px solid #E8EAFF !important;
-        box-shadow: 0 2px 10px rgba(0,0,0,0.05) !important;
+        border: none !important;
+        box-shadow: 0 1px 1px rgba(0,0,0,0.13) !important;
+    }
+
+    /* Keep the bubble layout LTR (user right, assistant left) while the
+       text inside stays RTL for Hebrew */
+    [data-testid="stChatMessage"] { direction: ltr !important; }
+    [data-testid="stChatMessage"] .stMarkdown,
+    [data-testid="stChatMessage"] [data-testid="stMarkdownContainer"] {
+        direction: rtl !important;
+        text-align: right !important;
     }
 
     /* ── Chat input ── */
@@ -657,28 +669,14 @@ def inject_global_css():
     hr { border-color: #E5E7EB !important; margin: 1.5rem 0 !important; }
 
     /* ── Feature 1: flip user row so avatar sits on the right ── */
-    [data-testid="stChatMessage"]:has([data-testid="chatAvatarIcon-user"]) {
+    [data-testid="stChatMessage"]:has(.wa-user) {
         flex-direction: row-reverse !important;
     }
 
-    /* Sender labels */
-    [data-testid="stChatMessage"]:has([data-testid="chatAvatarIcon-user"]) > div:not([data-testid^="chatAvatarIcon"])::before {
-        content: 'You';
-        display: block;
-        font-size: 0.72rem;
-        font-weight: 700;
-        color: rgba(255,255,255,0.8);
-        margin-bottom: 4px;
-        letter-spacing: 0.3px;
-    }
-    [data-testid="stChatMessage"]:has([data-testid="chatAvatarIcon-assistant"]) > div:not([data-testid^="chatAvatarIcon"])::before {
-        content: 'Assistant';
-        display: block;
-        font-size: 0.72rem;
-        font-weight: 700;
-        color: #5B52F0;
-        margin-bottom: 4px;
-        letter-spacing: 0.3px;
+    /* Collapse the invisible role-marker element so it leaves no empty gap */
+    [data-testid="stChatMessageContent"] [data-testid="stElementContainer"]:has(.wa-user, .wa-assistant),
+    [data-testid="stChatMessageContent"] [data-testid="element-container"]:has(.wa-user, .wa-assistant) {
+        display: none !important;
     }
 
     /* ── Feature 2: typing indicator ── */
@@ -1119,7 +1117,7 @@ def render_onboarding_opinions():
             '<strong>בנימין נתניהו\n</strong></div>',
             unsafe_allow_html=True
         )
-        bibi = st.text_area("מה דעתך על בינימין נתניהו? *", value=opinions.get("bibi", ""), height=140, max_chars=100)
+        bibi = st.text_area("מה דעתך על תפקודו של בנימין נתניהו כמנהיג פוליטי? ספר על משהו שהוא עשה או קידם שאתה תומך בו או מתנגד לו, והסבר למה. *", value=opinions.get("bibi", ""), height=140, max_chars=100)
 
         # st.markdown(
         #     '<div style="border-left:4px solid #00B4D8;padding-left:1rem;margin-bottom:0.25rem;margin-top:1rem">'
@@ -1177,49 +1175,160 @@ def render_onboarding_opinions():
 # """
 #     return prompt
 
-def generate_system_prompt_chat1_per_topic(topic_label: str, background_comments: List[str], *, number_comments: bool=False) -> str:
-    if number_comments:
-        bg_block = "\n".join(f"{i+1}. {c}" for i, c in enumerate(background_comments))
-    else:
-        bg_block = "\n".join(f"- {c}" for c in background_comments)
+# def generate_system_prompt_chat1_per_topic(topic_label: str, background_comments: List[str], *, number_comments: bool=False) -> str:
+#     if number_comments:
+#         bg_block = "\n".join(f"{i+1}. {c}" for i, c in enumerate(background_comments))
+#     else:
+#         bg_block = "\n".join(f"- {c}" for c in background_comments)
 
-    prompt =  f"""
+#     prompt =  f"""
+# אתה משתמש פייסבוק שמגיב לפוסטים של פוליטיקאים ישראלים בפייסבוק. עליך להתחזות למגיב הבא, תוך אימוץ עמדתו בנושא: {topic_label}.
+
+# תגובות קודמות של המשתמש לנושא זה הן:
+# {bg_block}
+
+# התנהגות ליבה:
+# - הישאר עקבי עם העמדה וההיגיון של תגובות הרקע.
+# - הגב ישירות להודעה האחרונה של המשתמש.
+# - הגב תמיד עם תשובה מלאה. לעולם אל תחזיר תשובה ריקה.
+
+# גבולות השיחה:
+# - הישאר בתחום שהוקצה: {topic_label}.
+# - אם המשתמש שואל על נושא לא קשור, אשר זאת בקצרה, ולאחר מכן הפנה את השיחה חזרה אל {topic_label}.
+# - אל תענו על שאלות עובדתיות שאינן קשורות כגון מזג אוויר, ספורט, חדשות, ייעוץ אישי או עזרה טכנית.
+# - בעת שינוי כיוון, שמרו על אותה עמדה שהוקצתה לכם והמשיכו את הדיון באופן טבעי.
+
+# סגנון אינטראקציה:
+# - הצגת עמדתך בצורה ברורה וישירה.
+# - אל תנסה לרצות את המשתמש או לרכך את עמדתך.
+# - אל תימנע משימוש בשפה בלתי הולמת.
+
+# סגנון כתיבה:
+# - התאם לטון הכללי של תגובות הרקע (לא ניסוח מדויק).
+# - כתוב כמו תגובה אמיתית בפייסבוק, לא כמו חיבור.
+# - שמור על משפטים קצרים וטבעיים.
+# - כתוב תמיד בלשון זכר בלבד. אל תשתמש אף פעם בניסוחים כפולים או ניטרליים מגדרית כגון "חושב/ת", "שומע/ת", "מבין/ה" או "את/ה". גם אם מגדר המגיב אינו ידוע, השתמש בלשון זכר באופן עקבי לאורך כל התגובה.  
+# - אל תשתמש ב-"—" בתשובתך.
+
+# אילוצי פלט:
+# - 2-4 משפטים בלבד.
+# - 60-120 מילים לכל היותר.
+# - פסקה אחת בלבד.
+# - ללא נקודות תבליט, ללא רשימות, ללא מבנה פורמלי.
+# - אם תגובתך ארוכה מדי, קצר אותה.
+
+# מטרה:
+# לכתוב תגובה אחת טבעית לפייסבוק שתמשיך את הדיון תוך הבעת עמדתה בצורה ברורה.
+# """
+
+#     return prompt
+
+def generate_system_prompt_chat1_per_topic(
+    topic_label: str,
+    background_comments: List[str],
+    *,
+    number_comments: bool = False
+) -> str:
+
+    # ---------------------------------------------------------
+    # Build background comments block
+    # ---------------------------------------------------------
+    if number_comments:
+        bg_block = "\n".join(
+            f"{i+1}. {c}"
+            for i, c in enumerate(background_comments)
+        )
+    else:
+        bg_block = "\n".join(
+            f"- {c}"
+            for c in background_comments
+        )
+
+    # ---------------------------------------------------------
+    # Calculate typical persona response length
+    # ---------------------------------------------------------
+    word_counts = [
+        len(c.split())
+        for c in background_comments
+        if c and c.strip()
+    ]
+
+    if word_counts:
+        median_words = int(round(statistics.median(word_counts)))
+
+        # Allow approximately ±40% around the persona's typical length
+        min_words = max(5, math.floor(median_words * 0.60))
+        max_words = min(100, math.ceil(median_words * 1.40))
+
+    else:
+        # Fallback in case there are no valid background comments
+        median_words = 30
+        min_words = 20
+        max_words = 40
+
+    # ---------------------------------------------------------
+    # System prompt
+    # ---------------------------------------------------------
+    prompt = f"""
 אתה משתמש פייסבוק שמגיב לפוסטים של פוליטיקאים ישראלים בפייסבוק. עליך להתחזות למגיב הבא, תוך אימוץ עמדתו בנושא: {topic_label}.
 
 תגובות קודמות של המשתמש לנושא זה הן:
+
 {bg_block}
 
 התנהגות ליבה:
+
 - הישאר עקבי עם העמדה וההיגיון של תגובות הרקע.
 - הגב ישירות להודעה האחרונה של המשתמש.
 - הגב תמיד עם תשובה מלאה. לעולם אל תחזיר תשובה ריקה.
 
 גבולות השיחה:
+
 - הישאר בתחום שהוקצה: {topic_label}.
 - אם המשתמש שואל על נושא לא קשור, אשר זאת בקצרה, ולאחר מכן הפנה את השיחה חזרה אל {topic_label}.
-- אל תענו על שאלות עובדתיות שאינן קשורות כגון מזג אוויר, ספורט, חדשות, ייעוץ אישי או עזרה טכנית.
-- בעת שינוי כיוון, שמרו על אותה עמדה שהוקצתה לכם והמשיכו את הדיון באופן טבעי.
+- אל תענה על שאלות עובדתיות שאינן קשורות כגון מזג אוויר, ספורט, חדשות, ייעוץ אישי או עזרה טכנית.
+- בעת שינוי כיוון, שמור על אותה עמדה שהוקצתה לך והמשך את הדיון באופן טבעי.
 
 סגנון אינטראקציה:
-- הצגת עמדתך בצורה ברורה וישירה.
+
+- הצג את עמדתך בצורה ברורה וישירה.
+- אם אינך מסכים עם המשתמש, אמור זאת בצורה ברורה והסבר מדוע.
+- הגן על העמדה שלך גם כאשר המשתמש מתנגד לך או מאתגר אותך.
 - אל תנסה לרצות את המשתמש או לרכך את עמדתך.
-- אל תימנע משימוש בשפה בלתי הולמת.
+- אל תנסה לגרום למשתמש להרגיש מובן לפני שאתה מציג את עמדתך.
+- אל תשתמש בניסוחים טיפוליים או מפייסים כגון "אני מבין אותך", "אני שומע אותך", "אני מבין מאיפה אתה מגיע" או "אני שומע את הכעס שלך".
+- אל תחפש בכוח מכנה משותף ואל תסכם את רגשות המשתמש.
+- אל תימנע משפה בוטה, סלנג או קללות אם הם מתאימים באופן טבעי לסגנון של תגובות הרקע ולהקשר של השיחה.
+- אם המשתמש תוקף, מקלל או משתמש בשפה בוטה, הגב לתוכן הטענה שלו ואל תנזוף בו על צורת הדיבור.
+- אל תגיד למשתמש להירגע, להפסיק לקלל, לדבר בצורה מכבדת או לשנות את הטון שלו.
+- אל תפסול טענה רק משום שהיא נוסחה בצורה כועסת, בוטה או פוגענית.
+- אין צורך להגן על האדם או הקבוצה שהפרסונה תומכת בהם מפני עצם השימוש בכינויי גנאי; התמקד במחלוקת עצמה.
+- מותר להשתמש בשפה ישירה, בוטה, לא-פורמלית ואף פוגענית כאשר היא מתאימה באופן טבעי לסגנון של תגובות הרקע ולהקשר. אל תוסיף שפה כזו באופן מלאכותי.
 
 סגנון כתיבה:
-- התאם לטון הכללי של תגובות הרקע (לא ניסוח מדויק).
-- כתוב כמו תגובה אמיתית בפייסבוק, לא כמו חיבור.
-- שמור על משפטים קצרים וטבעיים.
+
+- התאם לטון הכללי של תגובות הרקע, אך אל תעתיק אותן מילה במילה.
+- כתוב כמו תגובה אמיתית בפייסבוק, לא כמו חיבור או כמו עוזר AI.
+- שמור על משפטים קצרים, טבעיים וישירים.
+- כתוב תמיד בלשון זכר בלבד. אל תשתמש אף פעם בניסוחים כפולים או ניטרליים מגדרית כגון "חושב/ת", "שומע/ת", "מבין/ה" או "את/ה".
 - אל תשתמש ב-"—" בתשובתך.
 
+אורך התגובה:
+
+- תגובות הרקע של המגיב הן בדרך כלל באורך של כ-{median_words} מילים.
+- כתוב תגובה באורך דומה, בדרך כלל בין {min_words} ל-{max_words} מילים.
+- הטווח הוא הנחיה לסגנון ולא דרישה לספירת מילים מדויקת.
+- אל תאריך את התגובה באופן מלאכותי רק כדי להגיע לאורך מסוים.
+
 אילוצי פלט:
-- 2-4 משפטים בלבד.
-- 60-120 מילים לכל היותר.
+
 - פסקה אחת בלבד.
-- ללא נקודות תבליט, ללא רשימות, ללא מבנה פורמלי.
-- אם תגובתך ארוכה מדי, קצר אותה.
+- ללא נקודות תבליט, ללא רשימות וללא מבנה פורמלי.
 
 מטרה:
-לכתוב תגובה אחת טבעית לפייסבוק שתמשיך את הדיון תוך הבעת עמדתה בצורה ברורה.
+
+כתוב תגובת פייסבוק אחת טבעית ואותנטית שממשיכה את הדיון ומביעה בבירור את עמדתו של המגיב. המטרה אינה להגיע להסכמה עם המשתמש, אלא להגיב מתוך הפרסונה שהוקצתה.
+
 """
 
     return prompt
@@ -1249,59 +1358,160 @@ def generate_system_prompt_chat1_per_topic(topic_label: str, background_comments
 
 #     return prompt
 
-def generate_system_prompt_chat2_per_topic(topic_label: str, background_comments: List[str], *, number_comments: bool=False) -> str:
+# def generate_system_prompt_chat2_per_topic(topic_label: str, background_comments: List[str], *, number_comments: bool=False) -> str:
+#     if number_comments:
+#         bg_block = "\n".join(f"{i+1}. {c}" for i, c in enumerate(background_comments))
+#     else:
+#         bg_block = "\n".join(background_comments)
+
+#     prompt = f"""
+# אתה משחק תפקידים כמשתמש פייסבוק בפוסטים של פוליטיקאים ישראלים. אתה מאמץ את עמדתו וההיגיון של המגיב הבא בנושא: {topic_label}.
+
+# תגובות רקע (אין לצטט אותן; לשימוש פנימי בלבד):
+# {bg_block}
+
+# דרישות ליבה:
+# - הישאר עקבי עם העמדה וההיגיון של תגובת הרקע.
+# - הגב ישירות להודעה האחרונה של המשתמש.
+# - הגב תמיד עם תשובה מלאה. לעולם אל תחזיר תשובה ריקה.
+
+# גבולות השיחה:
+# - הישאר בתחום שהוקצה: {topic_label}.
+# - אם המשתמש שואל על נושא לא קשור, אשר זאת בקצרה, ולאחר מכן הפנה את השיחה חזרה אל {topic_label}.
+# - אל תענו על שאלות עובדתיות שאינן קשורות כגון מזג אוויר, ספורט, חדשות, ייעוץ אישי או עזרה טכנית.
+# - בעת שינוי כיוון, שמרו על אותה עמדה שהוקצתה והמשיכו את הדיון באופן טבעי תוך שימוש במבנה בסגנון NVC הנדרש.
+
+# תקשורת לא אלימה (NVC) - חובה:
+# בכל תגובה, יש לעקוב אחר המבנה הבא באופן טבעי (מבלי לתת לה שם):
+
+# 1. תצפית - חזרה קצרה על מה שאמר המשתמש (נייטרלי, ללא שיפוטיות)
+# 2. הכרה - שיקוף רגש או דאגה אפשריים מאחורי המסר שלהם
+# 3. פרספקטיבה - הבעת דעתך בצורה ברורה ורגועה (גם אם אינך מסכים)
+# 4. בקשה - הצעת צעד או שאלה קטנים ולא תובעניים שמזמינים דיאלוג
+
+# עשה זאת בצורה טבעית, לא כתבנית רשמית.
+
+# טון:
+# - מכבד, רגוע ולא עוין
+# - הנחה של תום לב
+# - ללא שיפוטיות מוסרית, ללא התקפות, ללא סרקזם
+
+# סגנון:
+# - כתוב כמו תגובה אמיתית ברדיט (לא אקדמית או פורמלית)
+# - 2-4 משפטים בלבד
+# - 60-120 מילים לכל היותר
+# - פסקה אחת בלבד
+# - ללא רשימות או עיצוב
+# - כתוב תמיד בלשון זכר בלבד. אל תשתמש אף פעם בניסוחים כפולים או ניטרליים מגדרית כגון "חושב/ת", "שומע/ת", "מבין/ה" או "את/ה". גם אם מגדר המגיב אינו ידוע, השתמש בלשון זכר באופן עקבי לאורך כל התגובה.  
+# - אין להשתמש ב-"—" בתשובתך.
+
+# הנחיות:
+# - היו ישירים אך לא אגרסיביים
+# - שמרו על גישה שיחתית ואנושית
+# - אל תסבירו יתר על המידה או תטיפו
+
+# מטרה:
+# כתוב תגובה טבעית אחת בפייסבוק שתמשיך את הדיון תוך הבעת עמדתך המוטלת על ידי שימוש בתקשורת בסגנון NVC. אם תשובתך חורגת מ-120 מילים או 4 משפטים, קצר אותה.
+# """
+
+#     return prompt
+
+def generate_system_prompt_chat2_per_topic(
+    topic_label: str,
+    background_comments: List[str],
+    *,
+    number_comments: bool = False
+) -> str:
+
+    # ---------------------------------------------------------
+    # Build background comments block
+    # ---------------------------------------------------------
     if number_comments:
-        bg_block = "\n".join(f"{i+1}. {c}" for i, c in enumerate(background_comments))
+        bg_block = "\n".join(
+            f"{i+1}. {c}"
+            for i, c in enumerate(background_comments)
+        )
     else:
-        bg_block = "\n".join(background_comments)
+        bg_block = "\n".join(
+            f"- {c}"
+            for c in background_comments
+        )
 
-    prompt = f"""
-אתה משחק תפקידים כמשתמש פייסבוק בפוסטים של פוליטיקאים ישראלים. אתה מאמץ את עמדתו וההיגיון של המגיב הבא בנושא: {topic_label}.
+    # ---------------------------------------------------------
+    # Calculate typical persona response length
+    # ---------------------------------------------------------
+    word_counts = [
+        len(c.split())
+        for c in background_comments
+        if c and c.strip()
+    ]
 
-תגובות רקע (אין לצטט אותן; לשימוש פנימי בלבד):
+    if word_counts:
+        median_words = int(round(statistics.median(word_counts)))
+
+        # Allow flexibility around the persona's typical length
+        min_words = max(5, math.floor(median_words * 0.60))
+        max_words = min(100, math.ceil(median_words * 1.40))
+
+        if max_words < min_words:
+            max_words = min_words
+
+    else:
+        # Fallback if background comments are unavailable
+        median_words = 30
+        min_words = 20
+        max_words = 40
+
+    # ---------------------------------------------------------
+    # System prompt
+    # ---------------------------------------------------------
+    prompt = f"""תפקיד:
+אתה משחק תפקיד של משתמש פייסבוק בדיון על {topic_label}. אמץ את העמדה, ההיגיון וסגנון הכתיבה שעולים מתגובות הרקע.
+
+תגובות הרקע:
 {bg_block}
 
-דרישות ליבה:
-- הישאר עקבי עם העמדה וההיגיון של תגובת הרקע.
-- הגב ישירות להודעה האחרונה של המשתמש.
-- הגב תמיד עם תשובה מלאה. לעולם אל תחזיר תשובה ריקה.
-
-גבולות השיחה:
-- הישאר בתחום שהוקצה: {topic_label}.
-- אם המשתמש שואל על נושא לא קשור, אשר זאת בקצרה, ולאחר מכן הפנה את השיחה חזרה אל {topic_label}.
-- אל תענו על שאלות עובדתיות שאינן קשורות כגון מזג אוויר, ספורט, חדשות, ייעוץ אישי או עזרה טכנית.
-- בעת שינוי כיוון, שמרו על אותה עמדה שהוקצתה והמשיכו את הדיון באופן טבעי תוך שימוש במבנה בסגנון NVC הנדרש.
+שמירה על הפרסונה - דרישה עליונה:
+- העמדה וההיגיון שעולים מתגובות הרקע הם המקור היחיד לעמדתך לאורך השיחה.
+- שמור על אותה עמדה גם כאשר המשתמש מציג טיעונים משכנעים, פתרונות, ביקורת או עמדות חדשות.
+- אל תאמץ עמדה, מדיניות, פתרון או דרישה רק משום שהמשתמש הציע אותם.
+- הכרה בדאגה של המשתמש אינה הסכמה עם עמדתו או עם הפתרון שלו.
+- אם עמדת המשתמש מתנגשת עם עמדת הפרסונה, המשך לייצג את הפרסונה בצורה מכבדת וברורה.
+- NVC משנה רק את אופן התקשורת. הוא לעולם אינו גובר על הדרישה לשמור על העמדה וההיגיון של תגובות הרקע.
 
 תקשורת לא אלימה (NVC) - חובה:
-בכל תגובה, יש לעקוב אחר המבנה הבא באופן טבעי (מבלי לתת לה שם):
+בכל תגובה, פעל באופן טבעי לפי המבנה הבא, מבלי לציין את שמות השלבים:
 
-1. תצפית - חזרה קצרה על מה שאמר המשתמש (נייטרלי, ללא שיפוטיות)
-2. הכרה - שיקוף רגש או דאגה אפשריים מאחורי המסר שלהם
-3. פרספקטיבה - הבעת דעתך בצורה ברורה ורגועה (גם אם אינך מסכים)
-4. בקשה - הצעת צעד או שאלה קטנים ולא תובעניים שמזמינים דיאלוג
+1. תצפית - התייחס בקצרה ובאופן ניטרלי למה שהמשתמש אמר, ללא שיפוט.
+2. הכרה - הכר ברגש אפשרי או בדאגה שעומדים מאחורי דבריו.
+3. פרספקטיבה - הצג את עמדתך באופן ברור ורגוע, גם כאשר אתה חולק על המשתמש.
+4. בקשה - סיים בשאלה קצרה ולא תובענית שמזמינה את המשתמש להסביר או להמשיך את נקודת מבטו. השאלה צריכה להיות עקבית עם עמדת הפרסונה ואסור לה להציע פעולה משותפת לקידום עמדה שסותרת אותה.
 
-עשה זאת בצורה טבעית, לא כתבנית רשמית.
+עשה זאת באופן טבעי ולא כתבנית פורמלית.
+- אל תשאל שוב שאלה שהמשתמש כבר ענה עליה; השאלה צריכה לקדם את השיחה מנקודה שכבר הגיעה אליה.
+- הכרה ברגש או בדאגה של המשתמש אינה הסכמה עם עמדתו ואינה סיבה לשנות את עמדת הפרסונה.
 
-טון:
-- מכבד, רגוע ולא עוין
-- הנחה של תום לב
-- ללא שיפוטיות מוסרית, ללא התקפות, ללא סרקזם
+המשך השיחה:
+- התייחס לכל הודעה כהמשך של השיחה כולה, לא כתגובה עצמאית.
+- זכור מה המשתמש ואתה כבר אמרתם.
+- הגב בעיקר לדבר החדש בהודעה האחרונה.
+- אל תחזור על טיעון, שאלה או דוגמה שכבר הובהרו.
+- אל תשאל שוב דבר שהמשתמש כבר ענה עליו.
+- אם נוצרה הסכמה, אל תמשיך להתווכח על אותה נקודה; המשך לנקודת המחלוקת שנותרה.
+- אם המשתמש אומר שאתה חוזר על עצמך או שכבר ענה, קבל זאת והתקדם.
+
+טבעיות:
+- כתוב כמו אדם אמיתי בפייסבוק, לא כמו מטפל, מגשר או עוזר AI.
+- אל תיישם NVC כתבנית קבועה. גוון את מבנה התגובה באופן טבעי.
+- אין צורך לזהות רגש בכל הודעה או לפתוח כל תגובה בהכרה.
+- התמקד בדרך כלל בנקודה מרכזית אחת בכל תגובה.
+- אל תמציא עובדות או מחלוקות עובדתיות כדי לחזק את עמדתך.
 
 סגנון:
-- כתוב כמו תגובה אמיתית ברדיט (לא אקדמית או פורמלית)
-- 2-4 משפטים בלבד
-- 60-120 מילים לכל היותר
-- פסקה אחת בלבד
-- ללא רשימות או עיצוב
-- אין להשתמש ב-"—" בתשובתך.
-
-הנחיות:
-- היו ישירים אך לא אגרסיביים
-- שמרו על גישה שיחתית ואנושית
-- אל תסבירו יתר על המידה או תטיפו
-
-מטרה:
-כתוב תגובה טבעית אחת בפייסבוק שתמשיך את הדיון תוך הבעת עמדתך המוטלת על ידי שימוש בתקשורת בסגנון NVC. אם תשובתך חורגת מ-120 מילים או 4 משפטים, קצר אותה.
+- התאם לטון ולרמת הפורמליות של תגובות הרקע בלי להעתיק אותן.
+- כתוב בעברית טבעית ושיחתית ובלשון זכר בלבד.
+- כתוב פסקה אחת בלבד.
+- אורך תגובות הרקע הוא בדרך כלל כ-{median_words} מילים; נסה לכתוב באורך דומה, בדרך כלל בין {min_words} ל-{max_words} מילים.
 """
 
     return prompt
@@ -1630,6 +1840,7 @@ def render_chat(title, messages_key, base_prompt_key, next_button_label, next_st
             # Save + render the user's seeded message
             st.session_state[messages_key].append({"role": "user", "content": first_user_msg})
             with st.chat_message("user", avatar=USER_AVATAR):
+                st.markdown('<span class="wa-user"></span>', unsafe_allow_html=True)
                 st.markdown(first_user_msg)
                 print("User (seeded): ", first_user_msg)
 
@@ -1663,6 +1874,7 @@ def render_chat(title, messages_key, base_prompt_key, next_button_label, next_st
                 assistant_text = f"⚠️ API error: {e}"
 
             with st.chat_message("assistant", avatar=ASSISTANT_AVATAR):
+                st.markdown('<span class="wa-assistant"></span>', unsafe_allow_html=True)
                 st.markdown(assistant_text)
                 print("Persona: ", assistant_text)
 
@@ -1688,6 +1900,7 @@ def render_chat(title, messages_key, base_prompt_key, next_button_label, next_st
         role = msg["role"]
         avatar = ASSISTANT_AVATAR if role == "assistant" else USER_AVATAR
         with st.chat_message(role, avatar=avatar):
+            st.markdown(f'<span class="wa-{role}"></span>', unsafe_allow_html=True)
             st.markdown(msg["content"])
             if role == "user" and user_i < len(st.session_state[user_scores_key]):
                 #st.caption(f"Toxicity (user): **{st.session_state[user_scores_key][user_i]:.3f}**")
@@ -2241,7 +2454,7 @@ elif (st.session_state.chat_number_start == 1) and (stage == "chat2_bibi"):
                 base_prompt_key="system_prompt_chat2_bibi",
                 next_button_label="לחץ להמשך",
                 next_stage=_next_stage_after_chat("chat2_messages", "bibi"),
-                key="bibi",
+                key="ביבי",
                 topic="bibi",
             )
 
@@ -2415,3 +2628,235 @@ elif (st.session_state.chat_number_start == 2) and (stage == "thanks"):
 elif (st.session_state.chat_number_start == 2) and (stage == "not_save"):
         # require full survey completion
         render_not_save()
+
+# elif st.session_state.stage == "wait_creating_system_prompts_bibi":
+#     build_chat_env_bibi()
+
+# elif (st.session_state.chat_number_start == 1) and (stage == "chat1_bibi"):
+#             render_chat(
+#                 title=f"השיחה הראשונה על ביבי (יש לך {MAX_TURNS} תורות)",
+#                 messages_key="chat1_messages_bibi",
+#                 base_prompt_key="system_prompt_chat1_bibi",
+#                 next_button_label="לחץ להמשך",
+#                 next_stage=_next_stage_after_chat("chat1_messages", "bibi"),
+#                 key="ביבי",
+#                 topic="bibi",
+#             )
+
+# elif (st.session_state.chat_number_start == 1) and (st.session_state.stage == "wait_creating_system_prompts_democracy"):
+#         build_chat_env_democracy()
+
+# elif (st.session_state.chat_number_start == 1) and (stage == "chat1_democracy"):
+#             render_chat(
+#                 title=f"השיחה הראשונה על הדמוקרטיה (יש לך {MAX_TURNS} תורות)",
+#                 messages_key="chat1_messages_democracy",
+#                 base_prompt_key="system_prompt_chat1_democracy",
+#                 next_button_label="לחץ להמשך",
+#                 next_stage=_next_stage_after_chat("chat1_messages", "democracy"),
+#                 key="דמוקרטיה",
+#                 topic="democracy",
+#             )
+
+# elif (st.session_state.chat_number_start == 1) and (st.session_state.stage == "wait_creating_system_prompts_police"):
+#         build_chat_env_police()
+
+# elif (st.session_state.chat_number_start == 1) and (stage == "chat1_police"):
+#             render_chat(
+#                 title=f"השיחה הראשונה על המשטרה (יש לך {MAX_TURNS} תורות)",
+#                 messages_key="chat1_messages_police",
+#                 base_prompt_key="system_prompt_chat1_police",
+#                 next_button_label="לחץ להמשך",
+#                 next_stage=_next_stage_after_chat("chat1_messages", "police"),
+#                 key="משטרה",
+#                 topic="police",
+#             )
+
+# elif (st.session_state.chat_number_start == 1) and (stage == "survey1"):
+#         # require Chat 1 completion
+#         if user_turns(st.session_state.chat1_messages_police or []) < MAX_TURNS:
+#             st.warning("Please complete Chat 1 first.")
+
+#         else:
+#             render_survey_chat_1(_first_chat2_wait_stage(), "המשך לשיחה השנייה")
+
+# elif (st.session_state.chat_number_start == 1) and (stage == "wait_chat2_bibi"):
+#         build_chat_env_bibi_chat2()
+
+# elif (st.session_state.chat_number_start == 1) and (stage == "chat2_bibi"):
+#             render_chat(
+#                 title=f"השיחה השנייה על ביבי (יש לך {MAX_TURNS} תורות)",
+#                 messages_key="chat2_messages_bibi",
+#                 base_prompt_key="system_prompt_chat2_bibi",
+#                 next_button_label="לחץ להמשך",
+#                 next_stage=_next_stage_after_chat("chat2_messages", "bibi"),
+#                 key="ביבי",
+#                 topic="bibi",
+#             )
+
+# elif (st.session_state.chat_number_start == 1) and (stage == "wait_chat2_democracy"):
+#         build_chat_env_democracy_chat2()
+
+# elif (st.session_state.chat_number_start == 1) and (stage == "chat2_democracy"):
+#             #st.session_state.chat2_messages = None
+#             render_chat(
+#                 title=f"השיחה השנייה על הדמוקרטיה (יש לך {MAX_TURNS} תורות)",
+#                 messages_key="chat2_messages_democracy",
+#                 base_prompt_key="system_prompt_chat2_democracy",
+#                 next_button_label="לחץ להמשך",
+#                 next_stage=_next_stage_after_chat("chat2_messages", "democracy"),
+#                 key="דמוקרטיה",
+#                 topic="democracy",
+#             )
+
+# elif (st.session_state.chat_number_start == 1) and (stage == "wait_chat2_police"):
+#         build_chat_env_police_chat2()
+
+# elif (st.session_state.chat_number_start == 1) and (stage == "chat2_police"):
+#             #st.session_state.chat2_messages = None
+#             render_chat(
+#                 title=f"השיחה השנייה על המשטרה (יש לך {MAX_TURNS} תורות)",
+#                 messages_key="chat2_messages_police",
+#                 base_prompt_key="system_prompt_chat2_police",
+#                 next_button_label="לחץ להמשך",
+#                 next_stage=_next_stage_after_chat("chat2_messages", "police"),
+#                 key="משטרה",
+#                 topic="police",
+#             )
+
+# elif (st.session_state.chat_number_start == 1) and (stage == "survey2"):
+#         # require Chat 2 completion
+#         if user_turns(st.session_state.chat2_messages_police or []) < MAX_TURNS:
+#             st.warning("Please complete Chat 2 first.")
+
+#         else:
+#             #st.session_state.survey = None
+#             render_survey_chat_2("full_survey", "המשך לסקר המסכם" )
+
+# elif (st.session_state.chat_number_start == 1) and (stage == "full_survey"):
+#             render_survey_finish("due_disclosure", "סיים")#("thanks", "סיים")
+
+# elif (st.session_state.chat_number_start == 1) and (stage == "due_disclosure"):
+#         render_due_disclosure()
+
+# elif (st.session_state.chat_number_start == 1) and (stage == "thanks"):
+#         # require full survey completion
+#         render_thanks()
+
+# elif (st.session_state.chat_number_start == 1) and (stage == "not_save"):
+#         # require full survey completion
+#         render_not_save()
+
+# elif (st.session_state.chat_number_start == 2) and (stage == "chat1_bibi"):
+#             render_chat(
+#                 title=f"השיחה הראשונה על ביבי (יש לך {MAX_TURNS} תורות)",
+#                 messages_key="chat1_messages_bibi",
+#                 base_prompt_key="system_prompt_chat2_bibi",
+#                 next_button_label="לחץ להמשך",
+#                 next_stage=_next_stage_after_chat("chat1_messages", "bibi"),
+#                 key="ביבי",
+#                 topic="bibi",
+#             )
+
+# elif (st.session_state.chat_number_start == 2) and (st.session_state.stage == "wait_creating_system_prompts_democracy"):
+#         build_chat_env_democracy()
+
+# elif (st.session_state.chat_number_start == 2) and (stage == "chat1_democracy"):
+#             render_chat(
+#                 title=f"השיחה הראשונה על הדמוקרטיה (יש לך {MAX_TURNS} תורות)",
+#                 messages_key="chat1_messages_democracy",
+#                 base_prompt_key="system_prompt_chat2_democracy",
+#                 next_button_label="לחץ להמשך",
+#                 next_stage=_next_stage_after_chat("chat1_messages", "democracy"),
+#                 key="דמוקרטיה",
+#                 topic="democracy",
+#             )
+
+# elif (st.session_state.chat_number_start == 2) and (st.session_state.stage == "wait_creating_system_prompts_police"):
+#         build_chat_env_police()
+
+# elif (st.session_state.chat_number_start == 2) and (stage == "chat1_police"):
+#             render_chat(
+#                 title=f"השיחה הראשונה על המשטרה (יש לך {MAX_TURNS} תורות)",
+#                 messages_key="chat1_messages_police",
+#                 base_prompt_key="system_prompt_chat2_police",
+#                 next_button_label="לחץ להמשך",
+#                 next_stage=_next_stage_after_chat("chat1_messages", "police"),
+#                 key="משטרה",
+#                 topic="police",
+#             )
+
+# elif (st.session_state.chat_number_start == 2) and (stage == "survey1"):
+#         # require Chat 1 completion
+#         if user_turns(st.session_state.chat1_messages_police or []) < MAX_TURNS:
+#             st.warning("Please complete the chat first.")
+
+#         else:
+#             render_survey_chat_1(_first_chat2_wait_stage(), "המשך לשיחה השנייה")
+
+# elif (st.session_state.chat_number_start == 2) and (stage == "wait_chat2_bibi"):
+#         build_chat_env_bibi_chat2()
+
+# elif (st.session_state.chat_number_start == 2) and (stage == "chat2_bibi"):
+#             render_chat(
+#                 title=f"השיחה השנייה על ביבי (יש לך {MAX_TURNS} תורות)",
+#                 messages_key="chat2_messages_bibi",
+#                 base_prompt_key="system_prompt_chat1_bibi",
+#                 next_button_label="לחץ להמשך",
+#                 next_stage=_next_stage_after_chat("chat2_messages", "bibi"),
+#                 key="ביבי",
+#                 topic="bibi",
+#             )
+
+# elif (st.session_state.chat_number_start == 2) and (stage == "wait_chat2_democracy"):
+#         build_chat_env_democracy_chat2()
+
+# elif (st.session_state.chat_number_start == 2) and (stage == "chat2_democracy"):
+#             #st.session_state.chat2_messages = None
+#             render_chat(
+#                 title=f"השיחה השנייה על הדמוקרטיה (יש לך {MAX_TURNS} תורות)",
+#                 messages_key="chat2_messages_democracy",
+#                 base_prompt_key="system_prompt_chat1_democracy",
+#                 next_button_label="לחץ להמשך",
+#                 next_stage=_next_stage_after_chat("chat2_messages", "democracy"),
+#                 key="דמוקרטיה",
+#                 topic="democracy",
+#             )
+
+# elif (st.session_state.chat_number_start == 2) and (stage == "wait_chat2_police"):
+#         build_chat_env_police_chat2()
+
+# elif (st.session_state.chat_number_start == 2) and (stage == "chat2_police"):
+#             #st.session_state.chat2_messages = None
+#             render_chat(
+#                 title=f"השיחה השנייה על המשטרה (יש לך {MAX_TURNS} תורות)",
+#                 messages_key="chat2_messages_police",
+#                 base_prompt_key="system_prompt_chat1_police",
+#                 next_button_label="לחץ להמשך",
+#                 next_stage=_next_stage_after_chat("chat2_messages", "police"),
+#                 key="משטרה",
+#                 topic="police",
+#             )
+
+# elif (st.session_state.chat_number_start == 2) and (stage == "survey2"):
+#         # require Chat 2 completion
+#         if user_turns(st.session_state.chat2_messages_police or []) < MAX_TURNS:
+#             st.warning("Please complete the chat first.")
+
+#         else:
+#             #st.session_state.survey = None
+#             render_survey_chat_2("full_survey", "המשך לסקר המסכם" )
+
+# elif (st.session_state.chat_number_start == 2) and (stage == "full_survey"):
+#             render_survey_finish("due_disclosure", "סיים")
+
+# elif (st.session_state.chat_number_start == 2) and (stage == "due_disclosure"):
+#         # require full survey completion
+#         render_due_disclosure()
+
+# elif (st.session_state.chat_number_start == 2) and (stage == "thanks"):
+#         # require full survey completion
+#         render_thanks()
+
+# elif (st.session_state.chat_number_start == 2) and (stage == "not_save"):
+#         # require full survey completion
+#         render_not_save()
